@@ -75,6 +75,14 @@ In a [separate Git switch configuration case](https://github.com/graydeon/mousa-
 
 An [explicit parent follow-up](https://github.com/graydeon/mousa-benchmarks/tree/67a6f0b528019b9ca089fd1ef926b53de0348558/results/2026-09-29-switch-parent-followup) retrieved the `git-switch` passage containing `include::config/checkout.adoc[]` at line 276 in a separate packet and Source Trail. The original packet's complete `checkout.defaultRemote` fragment and the follow-up parent passage require 513 rendered-content tokens together with the original question and citation layout, exceeding the frozen 512-token limit by one. The follow-up's greedy rendering retains the parent but not the fragment; no citation pair or answerability claim follows. The original failed packet, trail and historical report remain unchanged. Neither the limit nor the caller was changed after this observation.
 
+A [prospectively frozen citation-anchor replay](https://github.com/graydeon/mousa-benchmarks/tree/2d5cb51013a3128269c64444dc891e6728b67af1/results/2026-09-29-switch-citation-layout)
+replaced `URL lines first-last` with `URL#Lfirst-Llast` for the same
+whole fragment followed by the separate parent passage. The intact pair still
+costs 513 tokens, so the caller retains its existing layout and 512-token limit.
+All 11 saved retrieved passages matched pinned bytes, digests, URLs and normalized
+line coordinates. Citation-to-query mappings preserve independent packet and
+trail identities; no new query, packet rewrite or semantic support is claimed.
+
 The prior three sequential single-call observations had outer wall times of
 242 ms without projection, 1,195 ms at 512 and 1,089 ms at 544 using the
 original layout. Startup, tokenizer cache state and accumulated trail history

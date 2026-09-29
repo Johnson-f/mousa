@@ -1,12 +1,12 @@
-## What changed (required)
+## What changed
 
 Describe the behavior or documentation changed and the affected callers.
 
-## Why (required)
+## Why
 
 Describe the problem, the reason for this approach, and any meaningful trade-off.
 
-## Evidence (required)
+## Evidence
 
 Give a reproducible command or scenario, its actual result, and relevant limitations. If a check did not run, say why. Link related issues here; use `Closes #123` for each issue this PR fully resolves.
 

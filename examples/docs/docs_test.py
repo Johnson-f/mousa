@@ -75,11 +75,20 @@ class DocumentationConsumerTest(unittest.TestCase):
         self.assertEqual(context["sha256"], hashlib.sha256(context["text"].encode()).hexdigest())
         self.assertEqual(limited["response"]["packet_id"], full["response"]["packet_id"])
         self.assertEqual(context["text"], self.example("ask", "--context-tokens", "544", question)["context"]["text"])
-        smaller = self.example("ask", "--context-tokens", "512", question)["context"]
-        self.assertEqual(smaller["selected_segment_ids"],
-                         [full["response"]["evidence"][0]["segment_id"],
-                          full["response"]["evidence"][2]["segment_id"]])
-        self.assertIn(full["response"]["evidence"][1]["segment_id"], smaller["omitted_segment_ids"])
+        smaller = self.example("ask", "--context-tokens", "512", question)
+        self.assertEqual(smaller["context"]["selected_segment_ids"],
+                         [hit["segment_id"] for hit in full["response"]["evidence"][:2]])
+        self.assertEqual(smaller["context"]["omitted_segment_ids"],
+                         [hit["segment_id"] for hit in full["response"]["evidence"][2:]])
+        self.assertLessEqual(smaller["context"]["tokens"], 512)
+        self.assertEqual(smaller["response"]["packet_id"], full["response"]["packet_id"])
+        self.assertIn("include::diff-context-options.adoc[]", smaller["context"]["text"])
+        for index, hit in enumerate(full["response"]["evidence"][:2], 1):
+            location = hit["location"]
+            self.assertIn(f'[{index}] {location["url"]} lines '
+                          f'{location["line_start"]}-{location["line_end"]}\n{hit["text"]}',
+                          smaller["context"]["text"])
+        self.assertNotIn("Documentation/git-switch.adoc", smaller["context"]["text"])
         base_tokens = len(encoding.encode(docs.render_prompt(question, [])))
         empty = self.example("ask", "--context-tokens", str(base_tokens), question)["context"]
         self.assertEqual(empty["selected_segment_ids"], [])

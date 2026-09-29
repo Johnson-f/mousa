@@ -164,7 +164,7 @@ def ask(binary, store, directory, question, budget, timeout, arguments=()):
 def render_prompt(question, evidence):
     return ("Use only the cited Git 2.51.0 passages. If evidence is insufficient, say so.\n"
             "Question: " + question + "\nEvidence:\n" + "".join(
-                f'[{index}] {hit["item"]} {hit["location"]["url"]} '
+                f'[{index}] {hit["location"]["url"]} '
                 f'lines {hit["location"]["line_start"]}-{hit["location"]["line_end"]}\n'
                 f'{hit["text"]}\n' for index, hit in enumerate(evidence, 1)))
 

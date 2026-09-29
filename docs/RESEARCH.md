@@ -2,24 +2,30 @@
 
 Raw benchmark reports and optional comparison dependencies are maintained in
 [mousa-benchmarks](https://github.com/graydeon/mousa-benchmarks).
-Historical report links below identify the byte-preserving migration commit.
+Older report links pin the byte-preserving migration commit; later reports pin
+their own published companion revisions.
 Product regression tests, required client acceptance, and evaluation tools that
 depend on Mousa internals remain in this repository. Moving reports does not
 change their original source identities, protocols, or conclusions.
 
-This record tracks Mousa's empirical evaluation: hypotheses, methods, raw results,
-limitations, and reproduction. It is the only source of measured claims about Mousa.
-Development subsets and modified protocols are labeled as such; none is described as a
-full-suite result. Results are grouped by measurement environment; timings from different
-machines are never combined into one software comparison.
+This record collects engine measurements, hypotheses, methods, raw results,
+limitations and reproduction. Bounded caller-specific observations also appear
+with the [documentation consumer](../examples/docs/README.md) and the
+[backup checklist](../examples/backup/README.md). Development subsets and
+modified protocols are labeled as such; none is described as a full-suite
+result. Timings from different machines are not combined into one software
+comparison.
 
 ## Status
 
 Pre-alpha engine (verified lexical retrieval with FTS5 BM25, ingest, segmentation,
-lifecycle verification, policy decisions, Source Trails, byte-budget packets). No
-answering pipeline exists yet, so no RAG/answer-quality benchmark is applicable. Memory
-benchmarks (LongMemEval, MemoryAgentBench) and FreshStack await the corresponding
-retrieval capabilities; see the roadmap in the documented roadmap.
+lifecycle verification, policy decisions, Source Trails, byte-budget packets and
+opt-in declared associations). The Git documentation consumer optionally limits
+rendered prompt content with a pinned tokenizer; this does not bound the full
+packet or a model's context window. No answering pipeline exists, so no
+RAG/answer-quality benchmark is applicable. Memory benchmarks (LongMemEval,
+MemoryAgentBench) and FreshStack await the corresponding retrieval capabilities;
+see the [implemented and planned capabilities](../README.md#foundation).
 
 ## Opt-in passage segmentation
 

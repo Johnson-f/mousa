@@ -34,10 +34,11 @@ The [Git documentation consumer](../examples/docs/README.md) is a separate
 Python CLI example, not a core or `cmd/mousa` token-budget feature. Its opt-in
 `ask --context-tokens` counts a rendered prompt with pinned `o200k_base`; the
 returned byte-packed packet, message framing and reserved output are outside
-that cap. The [measured development case](../examples/docs/README.md#optional-prompt-content-projection)
-shows that a tighter cap can omit relevant parent context while admitting an
-unrelated later passage. It does not establish model-window safety or answer
-quality.
+that cap. The [pinned development case](https://github.com/graydeon/mousa-benchmarks/tree/4a9a477907b7f0eb7af708118e50c047ba9b2a5d/results/2026-09-29-context-512)
+keeps the fragment and verified parent passage at 511 of 512 content tokens
+by omitting a duplicate path from citation headers; an unrelated `git-switch`
+passage is not selected. It does not establish model-window safety, answer
+quality or general relevance.
 
 ## Item identity and lifecycle
 

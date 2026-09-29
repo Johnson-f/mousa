@@ -276,6 +276,11 @@ Implemented and planned capabilities, marked per item:
 
 Items marked planned are design targets. They are not a release checklist or a statement of current functionality, and nothing in this document is a measured claim.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for issue and pull request templates,
+required author-review attestations, testing evidence, and issue linking.
+
 ## Credits
 
 README banner portrait source: Dante Gabriel Rossetti, *Mnemosyne* (c. 1876–1881), Delaware Art Museum, accession 1935-22. [Public-domain reproduction via Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Mnemosyne_DAM.jpg). Materially transformed for Mousa.

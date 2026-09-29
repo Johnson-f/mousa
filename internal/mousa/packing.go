@@ -42,12 +42,9 @@ func (trail SourceTrail) validatePacking() error {
 		return retrievalValidationError("packing", ValidationCodeInvalidValue, message)
 	}
 	if trail.Schema == SourceTrailSchemaV3 {
-		// v3 continues in validateAssociated, which owns the packing-policy gate and the
-		// packet-identity recheck for associated rows.
-		if trail.Outcome == string(PolicyOutcomeDeny) && len(trail.Candidates) != 0 {
-			return invalid("deny cannot carry candidates")
-		}
-		return nil
+		// v3 records its packing policy, so its candidates are checked under that policy; the
+		// association stage continues in validateAssociated, which also rechecks packet identity.
+		return trail.validatePackedCandidates()
 	}
 	if trail.Schema == SourceTrailSchema {
 		if trail.PackingPolicy != "" {
@@ -63,8 +60,40 @@ func (trail SourceTrail) validatePacking() error {
 	if trail.PackingPolicy != PackingExactV1 {
 		return invalid("v2 requires exact-v1 packing")
 	}
+	return trail.validatePackedCandidates()
+}
+
+// validatePackedCandidates checks the recorded primary selection under the trail's own packing
+// policy. Exact-v1 names the byte-equal duplicate it omitted; the original policy keeps every
+// accepted passage whose bytes fit and records no packing omission, so its selection must still be
+// the greedy first-fit result of that budget.
+func (trail SourceTrail) validatePackedCandidates() error {
+	invalid := func(message string) error {
+		return retrievalValidationError("packing", ValidationCodeInvalidValue, message)
+	}
 	if trail.Outcome == string(PolicyOutcomeDeny) && len(trail.Candidates) != 0 {
 		return invalid("deny cannot carry candidates")
+	}
+	if trail.PackingPolicy == PackingOriginal {
+		if trail.BudgetBytes == 0 {
+			return invalid("budget must be positive")
+		}
+		plan, err := PackVerifiedLexicalCandidates(trail.Candidates, trail.BudgetBytes)
+		if err != nil {
+			return err
+		}
+		for index, candidate := range trail.Candidates {
+			if candidate.Omission != "" || candidate.DuplicateOf != "" {
+				return invalid("original packing records no packing omission")
+			}
+			if candidate.Selected != plan.Selected[index] {
+				return invalid("original packing disagrees with the recorded budget")
+			}
+		}
+		return nil
+	}
+	if trail.PackingPolicy != PackingExactV1 {
+		return invalid("packing policy must be original or exact-v1")
 	}
 	seen := make(map[string]TrailCandidate, len(trail.Candidates))
 	var used uint64

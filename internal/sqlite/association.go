@@ -87,6 +87,9 @@ func resolveAssociatedPassages(ctx context.Context, q queryer, sourceID mousa.So
 	var omissions []mousa.AssociationOmission
 	applied := make(map[string]struct{}, mousa.MaxAssociationTargets)
 	attempts := 0
+	// Considered passages are counted across the whole query, so the recorded association stage
+	// stays bounded however many targets and passages the declarations name.
+	considered := 0
 	for _, declaration := range declarations {
 		if _, fires := primaryItems[declaration.FromItem]; !fires {
 			continue
@@ -121,7 +124,10 @@ func resolveAssociatedPassages(ctx context.Context, q queryer, sourceID mousa.So
 			})
 			continue
 		}
-		segments, err := lexicalSegments(ctx, q, item.RepresentationID)
+		// Passages are read in the target's document order, and both the enumeration and the segment
+		// reads stop at the query's consideration bound, so a target larger than the bound costs a
+		// recorded omission instead of an unbounded read.
+		segments, more, err := lexicalSegmentsLimited(ctx, q, item.RepresentationID, mousa.MaxAssociationPassages-considered)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -130,8 +136,14 @@ func resolveAssociatedPassages(ctx context.Context, q queryer, sourceID mousa.So
 			if err != nil {
 				return nil, nil, err
 			}
+			considered++
 			passages = append(passages, mousa.AssociatedPassage{
 				Segment: segment, Item: declaration.ToItem, Text: text, Declaration: declaration,
+			})
+		}
+		if more {
+			omissions = append(omissions, mousa.AssociationOmission{
+				FromItem: declaration.FromItem, ToItem: declaration.ToItem, Reason: mousa.AssociationTargetTruncated,
 			})
 		}
 	}

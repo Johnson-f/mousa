@@ -138,7 +138,9 @@ without the qualification documented in another item. Mousa never infers these
 relationships; the author and basis stay attached to every passage the
 declaration releases. A declaration is honored only when the declaring item
 contributed selected primary evidence, so an unrelated query releases nothing.
-Depth is one and at most four distinct targets are read per query. Associated
+Depth is one and at most four distinct targets are read per query, up to 256
+target passages in total; a larger target is read only up to that bound and its
+remaining passages are reported as an omission. Associated
 passages pack into the remaining budget after primary evidence, keep their own
 item, segment identity, byte coordinates and content digest, and carry the
 declaration that included them. A missing, inactive or unfired declaration is
@@ -146,7 +148,8 @@ recorded as a visible omission, never a silent gap or a completeness claim. A
 relationship is not an access grant: resolution stays inside the one allowed
 source decision and only reaches the current active revision. The stored trail
 records the complete association stage; decoding stays strict across trail
-versions. See the
+versions, and reading a stored trail re-verifies every released passage against
+canonical store content. See the
 [associated context contract](docs/CAPABILITIES.md#declared-associated-context).
 
 ### CLI client example

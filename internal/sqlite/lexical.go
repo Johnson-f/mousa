@@ -174,25 +174,49 @@ func queryLexicalCandidates(ctx context.Context, q queryer, query string, args .
 }
 
 func lexicalSegments(ctx context.Context, q queryer, id mousa.RepresentationID) ([]mousa.Segment, error) {
-	rows, err := q.QueryContext(ctx, `
+	segments, _, err := lexicalSegmentsLimited(ctx, q, id, -1)
+	return segments, err
+}
+
+// lexicalSegmentsLimited reads one representation's segments in canonical document order, at most
+// limit of them, and reports whether further segments exist. A nonnegative limit bounds both the
+// enumeration and the canonical segment reads, so a caller that considers only part of a large
+// target does not decode the rest of it.
+func lexicalSegmentsLimited(ctx context.Context, q queryer, id mousa.RepresentationID, limit int) ([]mousa.Segment, bool, error) {
+	statement := `
 		SELECT id FROM segments
 		WHERE representation_id = ?
-		ORDER BY selector_start, selector_end, id`, id[:])
+		ORDER BY selector_start, selector_end, id`
+	arguments := []any{id[:]}
+	if limit >= 0 {
+		statement += ` LIMIT ?`
+		arguments = append(arguments, limit+1)
+	}
+	rows, err := q.QueryContext(ctx, statement, arguments...)
 	if err != nil {
-		return nil, classify("load lexical segments", err)
+		return nil, false, classify("load lexical segments", err)
 	}
 	var ids [][]byte
 	for rows.Next() {
 		var raw []byte
 		if err := rows.Scan(&raw); err != nil {
 			rows.Close()
-			return nil, classify("load lexical segments", err)
+			return nil, false, classify("load lexical segments", err)
 		}
 		ids = append(ids, append([]byte(nil), raw...))
 	}
 	if err := rows.Close(); err != nil {
-		return nil, classify("load lexical segments", err)
+		return nil, false, classify("load lexical segments", err)
 	}
+	if limit >= 0 && len(ids) > limit {
+		segments, err := decodeLexicalSegments(ctx, q, ids[:limit])
+		return segments, true, err
+	}
+	segments, err := decodeLexicalSegments(ctx, q, ids)
+	return segments, false, err
+}
+
+func decodeLexicalSegments(ctx context.Context, q queryer, ids [][]byte) ([]mousa.Segment, error) {
 	segments := make([]mousa.Segment, 0, len(ids))
 	for _, raw := range ids {
 		segment, err := lexicalSegmentByRawID(ctx, q, raw)

@@ -17,19 +17,30 @@ const (
 	MaxAssociationDeclarations = 32
 	// MaxAssociationTargets bounds how many distinct target items one query reads, so
 	// declared fan-out stays bounded additional work.
-	MaxAssociationTargets     = 4
+	MaxAssociationTargets = 4
+	// MaxAssociationPassages bounds how many target passages one query considers. Every considered
+	// passage is read, decoded and recorded, so without a bound a legal large target can exceed the
+	// canonical record size and fail the whole request. The bound is derived from the largest row a
+	// declaration can produce: 1024+1024 bytes of item identity, 512 bytes of basis and 128 bytes of
+	// author, whose JSON encoding escapes control characters at six bytes each, so one row stays
+	// under about 16.4 KiB and 256 rows under about 4.2 MiB, well inside a quarter of the
+	// 32 MiB canonical record limit.
+	MaxAssociationPassages    = 256
 	MaxAssociationItemBytes   = 1024
 	MaxAssociationBasisBytes  = 512
 	MaxAssociationAuthorBytes = 128
 )
 
-// Relationship omissions. A declared relationship that releases no passage is recorded with
-// one of these reasons instead of being dropped silently.
+// Relationship omissions. A declared relationship that releases no passage, or that releases less
+// than its whole target, is recorded with one of these reasons instead of being dropped silently.
 const (
 	AssociationTargetUnknown   = "target_unknown"
 	AssociationTargetInactive  = "target_inactive"
 	AssociationFanOut          = "fan_out"
 	AssociationDuplicateTarget = "duplicate_target"
+	// AssociationTargetTruncated records a target with more passages than one query considers.
+	// The passages that were considered keep their own rows; the rest were not read.
+	AssociationTargetTruncated = "target_truncated"
 )
 
 // AssociationDeclaration is one author-declared relationship between two items of one
@@ -182,7 +193,7 @@ func (omission AssociationOmission) Validate() error {
 		return newValidationError("to_item", ValidationCodeInvalidValue, "must differ from from_item", nil)
 	}
 	switch omission.Reason {
-	case AssociationTargetUnknown, AssociationTargetInactive, AssociationFanOut, AssociationDuplicateTarget:
+	case AssociationTargetUnknown, AssociationTargetInactive, AssociationFanOut, AssociationDuplicateTarget, AssociationTargetTruncated:
 	default:
 		return newValidationError("reason", ValidationCodeInvalidValue, "must be a known association omission reason", nil)
 	}

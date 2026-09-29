@@ -495,6 +495,24 @@ grant: resolution stays inside the one allowed source decision and only reads
 the current active revision of the target. Equal text does not transfer
 permissions between items.
 
+A query considers at most 256 target passages, counted across the targets its
+declarations name, in declaration order and then in the target's document order.
+A target with more passages is read only up to that bound, and its remaining
+passages are recorded as `target_truncated`; the passages that were considered
+keep their own rows, released or omitted. The bound is derived from the largest
+row a declaration can produce: 1024 bytes of item identity for each side, 512
+bytes of basis and 128 bytes of author, whose JSON encoding escapes control
+characters at six bytes each, so 256 rows stay under a quarter of the canonical
+record limit. Without it, a legal large target could exceed that limit and fail
+the whole request. The target's passages are read before packing, so added cost
+follows the number of passages considered rather than the bytes that fit, and a
+query whose remaining budget cannot hold a passage still reads the target and
+records the omissions.
+
+`target_truncated` extends the v3 omission-reason vocabulary. Consumers that
+enumerate the earlier v3 reasons must accept this value before reading a
+truncated trail. The omitted target passages have no rows in that trail.
+
 Associated passages pack into the remaining byte budget after primary
 evidence, in declaration order and selector order. Primary evidence keeps its
 existing selection and priority; an associated passage never displaces it.
@@ -517,3 +535,15 @@ trail exactly. Older executables that understand only v1/v2 reject v3 records
 rather than misreading them. As with all trail records, identities are
 text-free explanations, not signatures, and inspection still requires fresh
 source authorization.
+
+Reading a stored trail re-verifies both stages against the store. Every released
+passage must still decode from its canonical record with the recorded digest and
+size, still belong to its representation and to the decision source, and still
+hash its retained indexed text. An associated row is checked the same way,
+including that the row names the item its segment belongs to and that its
+declaring item contributed selected primary evidence. Membership comes from
+immutable representation ancestry, so a trail stays readable after the target
+item is revised, deactivated or removed. A v3 record validates its candidates
+under the packing policy it records: an original-policy trail keeps repeated
+byte-equal passages valid, while an exact-v1 trail still has to name the
+duplicate it omitted.

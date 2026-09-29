@@ -194,3 +194,44 @@ func TestQueryAssociationsRejectsInvalidDeclarations(t *testing.T) {
 		})
 	}
 }
+
+// Two items can legitimately share a passage byte for byte. The default packing policy keeps every
+// accepted passage whose bytes fit, so supplying a declaration must not turn that valid retrieval
+// into an integrity failure, and the declaration must still be honored.
+func TestQueryAssociationsWithRepeatedPrimaryContent(t *testing.T) {
+	run, root := setup(t)
+	shared := "# Release\n\nCut the release tag after the build is green.\n\n"
+	writeFile(t, root, "release.md", shared)
+	writeFile(t, root, "mirror.md", shared)
+	writeFile(t, root, "freeze.md", "Rollback window\n\nThe tag cannot be moved after clients cache it.\n")
+	if _, sync := run.run(false, "sync", "--segment-policy", "passage-v1", root); lenOf(sync, "added") != 3 {
+		t.Fatalf("fixture sync did not add three items: %v", sync)
+	}
+	declarationPath := writeDeclarationFile(t, root, freezeDeclarationFile)
+
+	_, plain := run.run(false, "query", "--budget-bytes", "8192", root, "release")
+	_, declared := run.run(false, "query", "--associations", declarationPath, "--budget-bytes", "8192", root, "release")
+	associated := associatedHits(declared)
+	if len(hits(declared))-len(associated) != len(hits(plain)) {
+		t.Fatalf("declaration changed the primary selection: %v vs %v", plain, declared)
+	}
+	digests := map[string]int{}
+	for _, entry := range hits(declared) {
+		digests[entry.(map[string]any)["content_sha256"].(string)]++
+	}
+	repeated := 0
+	for _, count := range digests {
+		if count > 1 {
+			repeated++
+		}
+	}
+	if repeated != 1 {
+		t.Fatalf("byte-equal primary passages released %d times, want both: %v", repeated, declared)
+	}
+	if len(associated) == 0 {
+		t.Fatalf("declared caveat was not retrieved: %v", declared)
+	}
+	if declared["used_bytes"].(float64) <= plain["used_bytes"].(float64) {
+		t.Fatalf("associated bytes were not accounted: %v vs %v", plain, declared)
+	}
+}

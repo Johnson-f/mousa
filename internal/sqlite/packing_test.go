@@ -365,7 +365,7 @@ func TestHistoricalVerificationRechecksCandidateRelationships(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := verifyExactTrailContent(ctx, tx, result.Trail, request.SourceID); err != nil {
+	if err := verifyTrailContent(ctx, tx, result.Trail, request.SourceID); err != nil {
 		t.Fatal(err)
 	}
 	for _, kind := range []string{"digest", "size", "source"} {
@@ -381,7 +381,7 @@ func TestHistoricalVerificationRechecksCandidateRelationships(t *testing.T) {
 			case "source":
 				source = other.source.ID
 			}
-			if err := verifyExactTrailContent(ctx, tx, trail, source); !IsCode(err, CodeIntegrity) {
+			if err := verifyTrailContent(ctx, tx, trail, source); !IsCode(err, CodeIntegrity) {
 				t.Fatalf("historical verification accepted changed %s: %v", kind, err)
 			}
 		})

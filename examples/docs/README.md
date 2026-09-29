@@ -60,6 +60,15 @@ Preview followed by synchronization is not an atomic filesystem snapshot.
   end-exclusive UTF-8 byte coordinates. `location` adds the pinned source URL
   and one-based normalized line range. Line ranges locate the selected bytes;
   they do not promise a complete section, command or AsciiDoc include.
+- `include_relationships` lists direct manifest include edges only when both
+  documents contributed selected evidence. Each edge locates the literal
+  include directive in its parent with a pinned URL, normalized line and byte
+  range; the fragment retains its own URL and coordinates on its evidence hit.
+  The example checks the directive against the hashed parent before emitting
+  the edge. A lexical hit from `git-switch.adoc` alongside
+  `diff-context-options.adoc` does not imply that switch includes the fragment.
+  An empty list does not prove that no include exists outside selected evidence.
+  These edges describe document structure, not semantic support or access grants.
 - The byte budget counts released text once, not JSON metadata, URLs or tokens.
   The example verifies the full normalized source digest before checking every
   selected range and segment digest. It refuses mismatched source files or

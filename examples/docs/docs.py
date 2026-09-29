@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import posixpath
 from pathlib import Path, PurePosixPath
 import subprocess
 import sys
@@ -125,12 +126,38 @@ def ask(binary, store, directory, question, budget, timeout, arguments=()):
         raise ValueError("released evidence exceeds declared accounting")
     if not evidence and response["outcome"] == "evidence":
         raise ValueError("empty evidence result")
+    selected_items = {hit["item"] for hit in evidence}
+    include_relationships = []
+    for parent in sorted(selected_items):
+        for child in sorted(manifest.get("includes", {}).get(parent, [])):
+            if child not in selected_items:
+                continue
+            relative = posixpath.relpath(child, posixpath.dirname(parent))
+            directive = ("include::" + relative + "[]").encode("utf-8")
+            normalized = documents[parent].removeprefix(b"\xef\xbb\xbf").replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+            offset = 0
+            found = False
+            for number, line in enumerate(normalized.split(b"\n"), 1):
+                if line.strip() == directive:
+                    start = offset + line.index(directive)
+                    include_relationships.append({
+                        "from_item": parent, "to_item": child,
+                        "directive": {"path": parent, "url": manifest["files"][parent]["url"],
+                                      "line_start": number, "line_end": number,
+                                      "byte_start": start, "byte_end": start + len(directive),
+                                      "text": directive.decode("utf-8")},
+                    })
+                    found = True
+                offset += len(line) + 1
+            if not found:
+                raise ValueError("declared include has no matching directive: " + parent + " -> " + child)
     return {"outcome": "evidence_available" if evidence else "insufficient_evidence",
             "support": "not_assessed", "answer": None,
             "snapshot": "Authorized at query time; not proof of current access or current source state.",
             "corpus": {"name": manifest["name"], "version": manifest["version"],
                        "revision": manifest["revision"], "manifest_sha256": digest,
                        "attribution": manifest["attribution"]},
+            "include_relationships": include_relationships,
             "response": response}
 
 

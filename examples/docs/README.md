@@ -29,9 +29,48 @@ python3 examples/docs/docs.py --directory ./git-docs ask \
 Go dependencies must already be available for an offline build. The example uses
 Python's standard library, the existing CLI and the maintained normalized-range
 verifier in `eval/local/workflow.py`. Run it from a complete checkout; it is not a
-standalone package or stable SDK. No network, model, service or extra framework is
-needed at runtime. Use `--mousa PATH` and `--store PATH` before the operation to
-select a binary and store. The default store is `docs.sqlite`.
+standalone package or stable SDK. Without `--context-tokens`, no network,
+model, service or extra framework is needed at runtime. Use `--mousa PATH` and
+`--store PATH` before the operation to select a binary and store. The default
+store is `docs.sqlite`.
+
+## Optional prompt-content projection
+
+For a caller that counts prompt content with `o200k_base`, install
+`tiktoken==0.12.0` in the Python environment and cache that encoding before
+offline use. Then add `--context-tokens 544` to `ask`. This opt-in operation
+returns `context.text`, a rendered instruction, question and selected passages
+with source URLs and line ranges. `context.tokens` counts the entire text using
+that encoding; it must not exceed the requested limit. Each whole passage is
+tried in retrieved order; an oversized passage is skipped and later passages
+can still fit. `selected_segment_ids` and `omitted_segment_ids` record that
+choice, `sha256` identifies the exact UTF-8 text, and `source_packet_id` names
+the original byte-packed query packet. It is not a new canonical packet or
+Source Trail. A limit too small for the instruction and question returns an
+error rather than truncating them. The default `ask` operation does not load
+the tokenizer.
+
+Only `context.text` has the stated content-token limit. The surrounding JSON
+still contains the complete byte-packed response, including omitted passages;
+do not send that JSON as the bounded model input. This does not count chat
+message framing, system messages, tool schemas, output reservations or another
+model's tokenizer. The caller must account for those separately and check the
+target model's actual encoding before treating the cap as a context-window
+guarantee. No answerability or semantic selection is inferred from token fit.
+
+On the bundled Git question about interactive hunk context, a 4,096-byte query
+released 3,945 evidence bytes; the full example JSON occupied 11,257 bytes.
+The fixed rendered prompt used 1,353 `o200k_base` tokens. A 512-token content
+cap skipped the second-ranked `git-restore` passage and retained an unrelated
+`git-switch` hit; 544 tokens kept the first two passages, including the
+`git-restore` applicability context. The first fragment contains the default
+setting under both caps. This is one development question, not a general
+relevance comparison. In three sequential single-call observations, outer wall
+time was 242 ms without projection, 1,195 ms at 512 and 1,089 ms at 544;
+startup, tokenizer cache state and accumulated trail history confound this
+comparison. These numbers are not a latency benchmark.
+
+## Corpus and sync
 
 `prepare` unpacks the bundled archive into a **new** directory and refuses to
 overwrite an existing directory. `corpus.json` pins each source file's SHA-256,

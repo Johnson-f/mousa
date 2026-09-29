@@ -71,6 +71,8 @@ the fragment contains the default. The later `git-restore` passage and both
 packet. This is a single development question; fit does not establish that a
 model can answer it. The earlier 544-token observation used the original layout.
 
+In a [separate Git switch configuration case](https://github.com/graydeon/mousa-benchmarks/tree/b791571f569d41beb58a5d03dee167abda48a07a/results/2026-09-29-switch-default-remote), the same 512-token layout did not retain the required pair. A 4,096-byte query retrieved the `checkout.defaultRemote` fragment at rank 2, but the rank-1 switch option passage plus that fragment would cost 602 tokens. The projection kept ranks 1 and 5 at 430 tokens; rank 5 is a generic configuration preface. No retrieved passage contains the `git-switch` parent directive at line 276 that includes the checkout fragment, although the hashed parent and manifest verify that edge. The parent cannot be selected from this packet by changing only its rendering. This observation does not assess a generated answer or establish a general relevance rate.
+
 The prior three sequential single-call observations had outer wall times of
 242 ms without projection, 1,195 ms at 512 and 1,089 ms at 544 using the
 original layout. Startup, tokenizer cache state and accumulated trail history

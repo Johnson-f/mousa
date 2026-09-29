@@ -23,11 +23,21 @@ The [research record](RESEARCH.md) documents published measurements and limitati
 | Source-scoped lexical retrieval | Yes | `query` | Cross-source isolation and current-only evidence | BEIR core evaluation and synthetic native-CLI comparison; no general CLI quality claim |
 | Source lifecycle and retrieval policy decisions | Yes | Fresh query evaluation; `access` and `withdraw` | CLI deny/allow, source withdrawal, and cross-source isolation | Evolving CLI example and warm current-query costs; not an isolated policy ablation |
 | Byte-budget evidence selection | Yes | `query --budget-bytes <positive>`; opt-in `--packing-policy exact-v1` | Byte boundaries, skip-oversized selection, duplicate displacement, versioned explanations and historical compatibility | Bounded exact-content packing measurements; no general retrieval-quality claim |
+| Declared associated context | Yes | Opt-in `query --associations <file>` | Same-source authorization, selected-primary trigger, bounded fan-out/target passages, omission reasons and v3 trail readback | [Caller-reviewed backup example](../examples/backup/README.md) and its bounded development cases; no general retrieval-quality claim |
 | Explicit query-term policy | Yes | Default `original`; explicit `--policy dedup` | Repetition changes ranking; shared expression capping | Published BEIR original/dedup results, not a new CLI quality claim |
 | Durable Source Trails and context packet IDs | Yes | Every query; `trail` inspection | Actual-CLI ID round-trip, current authorization, retired revisions; transaction rollback and rejected metadata filtering | Cold CLI and separate warm traced/current-query observations |
 | Classification records | Yes | No administration command | Canonical storage and validation | None; not automatic classification or classification-based authorization |
 | Semantic/hybrid retrieval, model inference, answer generation | No | No | Not implemented | None |
 | MCP, HTTP service, stable SDK, general connectors | No supported interface | No | Not implemented as supported interfaces | None |
+
+The [Git documentation consumer](../examples/docs/README.md) is a separate
+Python CLI example, not a core or `cmd/mousa` token-budget feature. Its opt-in
+`ask --context-tokens` counts a rendered prompt with pinned `o200k_base`; the
+returned byte-packed packet, message framing and reserved output are outside
+that cap. The [measured development case](../examples/docs/README.md#optional-prompt-content-projection)
+shows that a tighter cap can omit relevant parent context while admitting an
+unrelated later passage. It does not establish model-window safety or answer
+quality.
 
 ## Item identity and lifecycle
 

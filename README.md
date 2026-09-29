@@ -12,7 +12,11 @@ Mousa is a local-first retrieval and memory backbone for agents and other softwa
 
 Long-lived knowledge does not only grow. It becomes stale, duplicated, contradictory, and detached from its sources. Search can return matching text without showing why it was selected, whether it remains current, or what it replaced. Agent systems also pay a direct cost when retrieval sends more context than the task requires.
 
-Mousa is being designed to address those problems with source-linked retrieval, explicit lifecycle and policy metadata, inspectable ranking, and byte-budget context assembly; token-aware budgeting is planned.
+Mousa currently offers source-linked lexical retrieval, source-lifecycle and
+policy checks, inspectable ranking, and byte-budget evidence packing. A Git
+documentation example can optionally limit its rendered prompt content using
+a pinned tokenizer; this is not a token limit on CLI packets or a model's
+complete context window.
 
 ## The nine-stage retrieval backbone
 
@@ -28,13 +32,22 @@ Mousa's retrieval backbone deliberately echoes the nine Muses. Stages 1–5 are 
 | **6. Rank** | Order candidates using inspectable relevance and policy signals. | Implemented for BM25 order plus source-lifecycle policy; hybrid ranking is planned. |
 | **7. Verify** | Check authority, freshness, sensitivity, conflicts, and supersession. | Partially implemented: source lifecycle and deployment policy decisions; freshness, supersession, and conflict checks are deferred. |
 | **8. Trace** | Record how evidence moved through retrieval in a durable Source Trail. | Implemented for enforced lexical retrieval; see the narrower field list below. |
-| **9. Pack** | Assemble the selected evidence within an explicit context budget. | Implemented as an explicit byte budget; token-aware selection is planned. |
+| **9. Pack** | Assemble selected evidence within an explicit context budget. | Core and CLI use a released-text byte budget. The Git documentation consumer offers an optional prompt-content token projection; model-window accounting is not implemented. |
 
 Each stage has one responsibility and a visible boundary. The pipeline can be tested stage by stage, and no single model, provider, or harness owns the result.
 
 ## Source Trails
 
-A Source Trail records how a context packet was produced. The default `mousa.source_trail.v1` binds the policy request and decision, outcome, search expression, byte budget, packet identity, and ordered candidates with segment identity, content hash, final rank, byte count, disposition, lifecycle reasons, and selection flag. Opt-in exact-content packing writes `mousa.source_trail.v2`, which also binds the packing policy, omission reason and retained-segment relationship. Historical v1 bytes and identities remain unchanged. Ranking-stage explanations, transforms and supersession decisions remain planned.
+A Source Trail records how a context packet was produced. Default packing writes
+`mousa.source_trail.v1`, binding the policy request and decision, outcome,
+search expression, byte budget, packet identity, and ordered candidate
+dispositions. Opt-in exact-content packing writes v2, which also binds
+duplicate omissions and retained-segment relationships. Queries that record
+a declared-association stage write v3, binding associated passages and
+omissions. Older trail bytes and identities remain unchanged. Ranking-stage
+explanations, transforms and supersession decisions remain planned. A
+consumer's token-limited rendering is not a stored Source Trail or a new
+canonical packet.
 
 The goal is not to present a score as an explanation. The goal is to retain enough evidence to inspect what was selected, what was rejected, and why.
 
@@ -154,10 +167,13 @@ canonical store content. See the
 
 ### CLI client example
 
-For a persistent, usable documentation lookup, see the
-[versioned Git documentation example](examples/docs/README.md). It imports two
-pinned public manuals and returns bounded passages with verified byte ranges,
-normalized line locations and upstream links. It does not generate answers.
+For a persistent documentation lookup, see the
+[versioned Git documentation example](examples/docs/README.md). It imports
+pinned public manuals and their direct include fragments, then returns passages
+with verified byte ranges, normalized line locations and upstream links. Its
+optional `--context-tokens` mode renders cited passages within a
+`tiktoken==0.12.0`/`o200k_base` prompt-content cap; the raw packet still
+contains the full byte-packed response. The example does not generate answers.
 
 For an explicit caller decision over those retrieval contracts, see the
 [SQLite backup checklist](examples/backup/README.md). It verifies saved passages
@@ -224,14 +240,18 @@ python3 eval/local/workflow_test.py --mousa ./mousa
 The command requires an explicit readable executable and runs the actual CLI
 workflow plus nonzero-exit, malformed-JSON, wrong-shaped-output, and timeout
 consumer tests. It also runs the versioned documentation and caller-reviewed
-backup consumer suites. It exits nonzero on a failed test, unmet prerequisite, or skipped test.
-Failures include captured workflow output for diagnosis. Each run uses temporary
-stores; the original workflow's CLI calls have five-second deadlines (0.2 seconds
-for the intentional timeout), documentation and backup calls have 30-second deadlines, and
-each workflow subprocess has a 120-second deadline.
-The suite does not run comparisons or benchmarks. Ad hoc `unittest` discovery
-may still skip the real-CLI test when `MOUSA_EXECUTABLE` is unset; it is not a
-substitute for this required command.
+backup consumer suites. It exits nonzero on a failed top-level check, missing
+prerequisite, or skipped top-level test. The optional tokenizer test inside the
+documentation suite skips if `tiktoken` is absent; that nested skip does not
+fail this command. Run `python3 examples/docs/docs_test.py --mousa ./mousa`
+with `tiktoken==0.12.0` installed to exercise the opt-in projection. Failures
+include captured workflow output for diagnosis. Each run uses temporary
+stores; the original workflow's CLI calls have five-second deadlines (0.2
+seconds for the intentional timeout), documentation and backup calls have
+30-second deadlines, and each workflow subprocess has a 120-second deadline.
+The suite does not run comparisons or benchmarks. Ad hoc `unittest`
+discovery may still skip the real-CLI test when `MOUSA_EXECUTABLE` is unset;
+it is not a substitute for this required command.
 
 `access ./documents deny` blocks this CLI caller's retrieval and trail inspection;
 `access ./documents allow` restores that policy permission. Both also accept
@@ -267,10 +287,11 @@ Implemented and planned capabilities, marked per item:
 - lexical retrieval through SQLite FTS5 or an equally portable built-in mechanism (FTS5 implemented);
 - optional semantic retrieval behind a narrow provider interface (planned);
 - inspectable hybrid ranking (planned);
-- deterministic ingestion, chunk identity, source hashing, and manifests (ingestion and identity implemented; manifests planned);
+- deterministic ingestion, chunk identity and source hashing (implemented); caller-owned pinned corpus manifests (documentation examples); general core manifest support (planned);
 - authority, freshness, sensitivity, status, and supersession metadata (lifecycle status and deployment policy implemented; freshness, supersession, and conflicts deferred);
 - secret filtering and non-indexable sensitivity classes (planned);
-- byte-budget-aware selection with opt-in exact-content deduplication (implemented); truncation, approximate redundancy removal and token-aware budgeting remain planned;
+- byte-budget selection with opt-in exact-content deduplication (implemented in core/CLI); optional prompt-content token projection (Git documentation consumer only); truncation, approximate redundancy removal and model-window budgeting (planned);
+- source-scoped declared associations with attributed, bounded context (opt-in CLI query; not inferred relationships or access grants);
 - source-linked context packets with durable Source Trail identifiers (implemented in the core and exposed by `cmd/mousa`);
 - documented export formats that other tools can read without Mousa (planned).
 

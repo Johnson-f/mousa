@@ -168,7 +168,11 @@ python3 examples/docs/evaluate.py --mousa ./mousa --output docs-results.json
 
 Acceptance uses synthetic lifecycle fixtures to check updates, deletion, denial,
 withdrawal, source isolation, changed-byte refusal and saved/current distinctions.
-It also exercises the real bundled corpus. `questions.json` fixes four supporting-
+It also exercises the real bundled corpus. The prompt-content projection check
+runs when `tiktoken==0.12.0` is installed and is skipped otherwise; a skipped
+optional check is not evidence that token projection passed.
+
+`questions.json` fixes four supporting-
 passage questions and one no-match case before retrieval. They are development
 questions, not held-out evaluation. The evaluation makes five passes of those same
 five questions without resetting history or tuning keywords. Its `result: PASS`

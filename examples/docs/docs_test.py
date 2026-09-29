@@ -179,6 +179,22 @@ class DocumentationConsumerTest(unittest.TestCase):
         fragment = "\n".join(by_item["Documentation/diff-context-options.adoc"])
         self.assertIn("`--inter-hunk-context=<n>`", fragment)
         self.assertIn("Defaults to `diff.interHunkContext` or 0", fragment)
+        edges = packet["include_relationships"]
+        self.assertEqual([(edge["from_item"], edge["to_item"]) for edge in edges],
+                         [("Documentation/git-restore.adoc", "Documentation/diff-context-options.adoc")])
+        self.assertEqual(edges[0]["directive"]["line_start"], 53)
+        self.assertEqual(edges[0]["directive"]["path"], "Documentation/git-restore.adoc")
+        self.assertEqual(edges[0]["directive"]["text"], "include::diff-context-options.adoc[]")
+        parent = self.directory / edges[0]["from_item"]
+        start, end = edges[0]["directive"]["byte_start"], edges[0]["directive"]["byte_end"]
+        self.assertEqual(parent.read_bytes()[start:end].decode(), edges[0]["directive"]["text"])
+        unrelated = self.example("ask", "Does git switch include diff-context-options.adoc for --inter-hunk-context?")
+        self.assertTrue(any(h["item"] == "Documentation/git-switch.adoc" for h in unrelated["response"]["evidence"]))
+        self.assertTrue(any(h["item"] == "Documentation/diff-context-options.adoc" for h in unrelated["response"]["evidence"]))
+        self.assertFalse(any(edge["from_item"] == "Documentation/git-switch.adoc" and
+                             edge["to_item"] == "Documentation/diff-context-options.adoc"
+                             for edge in unrelated["include_relationships"]))
+        self.assertEqual(unrelated["response"]["decision_outcome"], "allow")
         workers = self.example(
             "ask", "How many parallel workers does checkout use by default, and what "
             "happens if the worker count is less than one?")
@@ -186,6 +202,36 @@ class DocumentationConsumerTest(unittest.TestCase):
                          if hit["item"] == "Documentation/config/checkout.adoc")
         self.assertIn("The default is one", text)
         self.assertIn("number of logical cores", text)
+
+    def test_include_relationships_follow_current_corpus_and_access(self):
+        self.corpus("Cedar procedure.\ninclude::removed.txt[]\n", "one")
+        (self.directory / "removed.txt").write_text("Cedar extension.\n")
+        manifest_path = self.directory / "corpus.json"
+        manifest = json.loads(manifest_path.read_text())
+        content = (self.directory / "removed.txt").read_bytes()
+        manifest["files"]["removed.txt"]["sha256"] = hashlib.sha256(content).hexdigest()
+        manifest["includes"] = {"manual.txt": ["removed.txt"]}
+        manifest_path.write_text(json.dumps(manifest))
+        self.example("sync")
+        first = self.example("ask", "cedar")
+        self.assertEqual([(edge["from_item"], edge["to_item"]) for edge in first["include_relationships"]],
+                         [("manual.txt", "removed.txt")])
+        self.cli("access", str(self.directory), "deny")
+        denied = self.example("ask", "cedar")
+        self.assertEqual(denied["response"]["decision_outcome"], "deny")
+        self.assertEqual(denied["include_relationships"], [])
+        self.cli("access", str(self.directory), "allow")
+        manifest["includes"] = {}
+        manifest_path.write_text(json.dumps(manifest))
+        self.assertEqual(self.example("ask", "cedar")["include_relationships"], [])
+        manifest["includes"] = {"manual.txt": ["removed.txt"]}
+        manifest_path.write_text(json.dumps(manifest))
+        (self.directory / "manual.txt").write_text("Cedar procedure without an include.\n")
+        manifest["files"]["manual.txt"]["sha256"] = hashlib.sha256(
+            (self.directory / "manual.txt").read_bytes()).hexdigest()
+        manifest_path.write_text(json.dumps(manifest))
+        self.example("sync")
+        self.example("ask", "cedar", expected=1)
 
     def test_bundled_corpus_and_insufficient_evidence(self):
         self.directory.rmdir()

@@ -2,8 +2,8 @@
 
 Mousa is pre-alpha. The supported executable is `cmd/mousa`, built from source with
 Go 1.25 or newer. The core packages are internal, not a stable SDK. Its CLI and
-local stdio MCP interface store and retrieve evidence; neither generates answers
-or establishes factual truth.
+MCP interfaces store and retrieve evidence; none generates answers or establishes
+factual truth.
 
 ## Capability matrix
 
@@ -30,7 +30,9 @@ The [research record](RESEARCH.md) documents published measurements and limitati
 | Classification records | Yes | No administration command | Canonical storage and validation | None; not automatic classification or classification-based authorization |
 | Semantic/hybrid retrieval, model inference, answer generation | No | No | Not implemented | None |
 | Local stdio MCP | Yes | `mcp --caller <id> --source <id>` | Real SDK client/executable round trips, persistence, configured boundaries, committed prefix, framing, cancellation and shutdown | None; acceptance is not a performance or model-driven evaluation |
-| HTTP service, stable SDK, general connectors | No supported interface | No | Not implemented as supported interfaces | None |
+| OpenAI MCP Extensions | Yes | Opt-in `mcp --openai-extensions`; `plugin` packaging | Real executable mention/resource authorization and reconnect; native Codex install, component recognition, tool discovery and resource read; actual desktop rendering not verified | None; protocol/client checks are not model-driven evaluation |
+| OAuth-protected Streamable HTTP | Yes | Opt-in `mcp --http-config FILE` | Local TLS introspection fixture covers subject, audience, issuer, expiry, scopes, revocation and host/origin boundaries | None; live identity-provider/deployment interoperability not verified |
+| Stable SDK, general connectors, public pairing relay | No supported interface | No | Not implemented as supported interfaces | None |
 
 The [Git documentation consumer](../examples/docs/README.md) is a separate
 Python CLI example, not a core or `cmd/mousa` token-budget feature. Its opt-in
@@ -72,8 +74,8 @@ The supported protocol is [MCP `2025-11-25`](https://modelcontextprotocol.io/spe
 implemented with the official [Go SDK v1.8.0](https://github.com/modelcontextprotocol/go-sdk/releases/tag/v1.8.0).
 Initialization advertises the tools capability. If the client requests another
 version, the server offers `2025-11-25`; a client that cannot use it should
-disconnect. `tools/list` exposes the input and output JSON Schemas. No prompts,
-resources, roots, sampling, tasks or remote transport are exposed.
+disconnect. `tools/list` exposes the input and output JSON Schemas. The default
+stdio mode exposes no prompts, resources, roots, sampling, tasks or remote transport.
 
 | Tool | Required arguments | Optional arguments | Success `result` |
 |---|---|---|---|
@@ -191,6 +193,140 @@ The deterministic actual-client regression command is
 executable with the official SDK client and temporary SQLite stores, validates
 discovered output schemas and logs client/server receipts. It is not a
 model-driven agent run or a comparative measurement.
+
+## OpenAI MCP Extensions
+
+The MVP follows the [OpenAI MCP Extensions specification](https://github.com/openai/mcp-extensions/blob/e314720a0daac326217d1f123fcf51647868fa9f/docs/spec.md)
+and its Bits & Bolts registration/onboarding example. Enable it explicitly with
+`--openai-extensions`. The base four tools are unchanged; one additional
+`mousa_mentions` tool and an evidence resource template are advertised.
+
+`mousa_mentions` accepts only `{ "query": "cedar" }`. The tool advertises
+`_meta["openai/extensions"]["mentions/search"]: {}` and app visibility through
+`_meta["ui"]["visibility"]: ["app"]`. It returns `structuredContent.items` as
+resource links. Empty/whitespace queries return an empty list. Nonempty queries
+use the existing source-authorized retrieval and trails, original query policy
+and a 65536-byte evidence budget per source. Results contain at most 30 links;
+configured sources are searched in sorted label order, not globally ranked.
+Argument strings are limited to 4096 UTF-8 bytes and reject null, duplicates,
+unknown fields, invalid Unicode and embedded NUL.
+
+Resource URIs use `mousa://evidence/<source-id>/<segment-id>`. Both identities
+are canonical lowercase SHA-256 IDs, not filesystem paths. `resources/read`
+performs a fresh policy evaluation before looking up text, then verifies current
+indexed bytes, canonical ancestry and restrictive lifecycle in one writer
+snapshot. A previous link grants no authority. Denied, retired, withdrawn,
+unscoped and absent evidence is unavailable. The JSON resource uses schema
+`mousa.evidence_resource.v1`, a fresh `decision_id`, and `evidence` containing
+`segment`, `text` and `paths`. Paths contain representation, artifact, observation
+and source IDs projected only for the authorized source. Text is limited to
+65536 bytes and the complete resource to 1048576 bytes. Treat text as untrusted data.
+
+No custom viewer, global/thread UI entrypoint, file handler, filesystem access,
+settings mutation or extended form is implemented. These are optional extensions,
+not required to make mention search useful. The specification lists desktop
+composer mentions; its Web column means ChatGPT Work and excludes classic
+ChatGPT. It does not establish CLI rendering support. Codex CLI uses the
+core tools and evidence skill when desktop features are absent.
+
+### Consent, packaging and privacy
+
+`mousa -store STORE plugin --out NEW_DIRECTORY --source ID --consent-to-share`
+creates a local marketplace only after explicit consent. Repeat `--source`.
+The portable plugin has root `plugin.json`, `mcp.json`, `skills/` and `bin/`;
+OpenAI presentation and `onboardingSkill` are under `extensions.com.openai`.
+Portable stdio commands must be bare names or contained `./` paths, so the
+package uses `./bin/mousa`, not an absolute executable path. The store path is
+user-specific startup configuration. The generator does not open/ingest the
+store, install credentials, alter host configuration or publish anything.
+It refuses an existing destination. Protect the package/config like the store.
+
+The setup skill explains sharing and asks the user to confirm sources before
+retrieval. The evidence skill explains querying, quotations and Source Trails.
+Data sent to the host/provider includes query/tool arguments, selected evidence
+text, source/item labels, canonical IDs, byte coordinates, hashes and provenance/
+audit metadata. Local audit records remain in the canonical store. Host/provider
+retention, account controls and deletion are governed by that host/provider.
+Mousa does not detect secrets or control retention outside its process.
+
+Default access does not mutate source content. Query, mention and trail/resource
+inspection append authorization/audit records, so their tool annotations do not
+claim `readOnlyHint: true`. Status is read-only/idempotent; sync can update/delete
+explicit items and is marked destructive. All tools are closed-world. To enable
+ingestion, separately configure an already permitted `--ingest-source`; consent
+to retrieval is not consent to ingestion.
+
+### Authenticated HTTP and deployment
+
+HTTP is a separate transport, not an extension. `mcp --http-config FILE` serves
+stateless JSON Streamable HTTP at `/mcp`. The same startup caller/source/store
+bindings and source-deny precedence apply. Each process accepts one configured
+OAuth subject; deploy separate processes, OS users and stores for separate
+accounts. There is no shared multi-tenant writable store or client-selected path.
+This is a dedicated-account, operator-hosted deployment, not a public pairing relay.
+
+The JSON configuration requires:
+
+| Field | Contract |
+| --- | --- |
+| `listen` | Numeric loopback address and port 1–65535; no LAN/public bind |
+| `resource` | Stable absolute HTTPS URL ending in `/mcp`; no credentials/query/fragment |
+| `issuer` | Exact HTTPS OAuth authorization-server issuer |
+| `subject` | Exact expected user subject; all other subjects are rejected |
+| `introspection_url` | Operator-configured HTTPS RFC 7662 token-introspection endpoint |
+| `client_id` | Confidential resource-server introspection client |
+| `client_secret_env` | Environment variable containing its secret; no secret in package/config |
+
+Start it with the same `-store`, `--caller`, `--source`, optional ingestion and
+extension flags as stdio. Supply an established OAuth 2.1 authorization server
+with authorization-code/PKCE S256 and client registration appropriate for the
+host, plus an operator-managed HTTPS reverse proxy. Mousa is the resource server,
+not an OAuth authorization server. The proxy must preserve the configured public
+Host or exact loopback authority. Forwarded identity/host headers confer no trust.
+Untrusted Origins are rejected for MCP; public protected-resource metadata supports
+cross-origin authentication discovery. No unauthenticated tool listener is started.
+
+Every HTTP request introspects the bearer token without caching. The response
+must contain active, exact `iss`/`sub`, matching `aud` (string or array), future
+`exp`, acceptable `nbf` if present, and space-separated `scope`. Missing/invalid
+claims fail closed. `mousa:read` is required for all MCP requests; ingestion also
+requires `mousa:write` and startup source permission. This is not an API-key login
+fallback. Introspection uses HTTP Basic service authentication, a five-second
+timeout, bounded response, TLS verification and no redirects. Provider errors
+release no token/secret details. The configured IdP must support these claims.
+
+The unauthenticated metadata endpoint is
+`/.well-known/oauth-protected-resource/mcp`; 401 responses advertise it through
+`WWW-Authenticate`. Request bodies are limited to 2 MiB, headers to 16 KiB and
+admission to eight concurrent requests including token verification. Stateless
+requests retain no session identity/replay buffer. Shutdown drains handlers before
+closing the canonical store.
+
+### Local connectivity and public directory gates
+
+Same-host desktop/Codex stdio needs neither HTTPS nor a tunnel. Hosted private
+testing can use an operator-configured [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels);
+workspace permissions, runtime credentials and activation are separate prerequisites.
+A development tunnel is not public distribution.
+
+The generated package reports `directory_submission_ready: false`. It is usable
+for local/private testing, not a completed shared-directory submission. Public
+submission needs stable authenticated HTTPS, verified publisher/domain, product,
+support, privacy and terms URLs, icons, account-isolation/deployment review,
+dedicated reviewer access, an actual walkthrough recording and executed positive/
+negative review cases. Do not place reviewer credentials in the ZIP. No URLs,
+account access or demo results are invented. Local stores cannot become generally
+accessible through a public listing without an authorized deployed connectivity
+solution. This implementation does not deploy that solution.
+
+[Submission requirements](https://developers.openai.com/plugins/deploy/submission)
+remain separate from extension support. The maintained
+[integration matrix](../eval/local/openai-matrix.json) supplies five positive and
+three negative review specifications and a synthetic fixture. It names ChatGPT
+desktop and Codex CLI as primary, OMP/Hermes as secondary; Goose is not a current
+benchmark. Protocol checks, actual native discovery/resource reads, desktop UI
+checks and model-driven review cases must have separate PASS/FAIL/NOT RUN receipts.
+
 
 ## Item identity and lifecycle
 

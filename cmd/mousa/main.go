@@ -50,6 +50,8 @@ func main() {
 		err = accessCommand(ctx, *storePath, rest)
 	case "withdraw":
 		err = withdrawCommand(ctx, *storePath, rest)
+	case "mcp":
+		err = mcpCommand(ctx, *storePath, rest)
 	default:
 		fmt.Fprintf(os.Stderr, "mousa: unknown command %q\n", command)
 		usage()
@@ -81,6 +83,9 @@ commands:
   access --source <id> allow|deny
   withdraw <dir>             withdraw a directory source from retrieval (JSON)
   withdraw --source <id>     withdraw a JSONL source from retrieval (JSON)
+  mcp --caller <id> --source <id>
+                            serve the configured JSONL sources over stdio MCP
+                            repeat --source; add --ingest-source <id> to permit writes
 
 query options (before positional arguments):
   --policy original|dedup    query-term policy; default original retains repetition
@@ -403,22 +408,30 @@ func runStatus(ctx context.Context, storePath string, source mousa.Source, label
 		return err
 	}
 	defer store.Close()
+	result, err := sourceStatus(ctx, store, source, label)
+	if err != nil {
+		return err
+	}
+	return emit(result)
+}
+
+func sourceStatus(ctx context.Context, store *sqlite.Store, source mousa.Source, label string) (statusResult, error) {
 	state, err := store.GetIngestState(ctx, source.ID)
 	if err != nil {
 		if sqlite.IsCode(err, sqlite.CodeNotFound) {
-			return emit(statusResult{Source: label, CollectionState: "absent"})
+			return statusResult{Source: label, CollectionState: "absent"}, nil
 		}
-		return err
+		return statusResult{}, err
 	}
 	active, observations, err := store.LocalSourceCounts(ctx, source.ID)
 	if err != nil {
-		return err
+		return statusResult{}, err
 	}
 	recovery, err := store.LocalSourceNeedsRecovery(ctx, source.ID)
 	if err != nil {
-		return err
+		return statusResult{}, err
 	}
-	return emit(statusResult{Source: label, CollectionState: string(state.CollectionState), ActiveItems: active, Observations: observations, NeedsRecovery: recovery})
+	return statusResult{Source: label, CollectionState: string(state.CollectionState), ActiveItems: active, Observations: observations, NeedsRecovery: recovery}, nil
 }
 
 // runSyncDirectory applies the complete selected set. Scope exclusions deactivate

@@ -16,6 +16,14 @@ import (
 // Declarations opt the caller into associated context: without them the
 // retrieval is the established unassociated path.
 func queryItems(ctx context.Context, store *sqlite.Store, source mousa.Source, query, policy string, budgetBytes uint64, packingPolicy string, declarations []mousa.AssociationDeclaration) (*evidenceResult, error) {
+	request, err := newRetrievalRequest(source.ID)
+	if err != nil {
+		return nil, err
+	}
+	return queryItemsForRequest(ctx, store, source, request, query, policy, budgetBytes, packingPolicy, declarations)
+}
+
+func queryItemsForRequest(ctx context.Context, store *sqlite.Store, source mousa.Source, request mousa.PolicyEvaluationRequest, query, policy string, budgetBytes uint64, packingPolicy string, declarations []mousa.AssociationDeclaration) (*evidenceResult, error) {
 	needsRecovery, err := store.LocalSourceNeedsRecovery(ctx, source.ID)
 	if err != nil {
 		return nil, err
@@ -28,10 +36,6 @@ func queryItems(ctx context.Context, store *sqlite.Store, source mousa.Source, q
 		return nil, err
 	}
 	expression := strings.Join(terms, " OR ")
-	request, err := newRetrievalRequest(source.ID)
-	if err != nil {
-		return nil, err
-	}
 	traced, err := store.EvaluateAndTraceAssociatedLexical(ctx, request, expression, queryCandidateLimit, budgetBytes, packingPolicy, declarations)
 	if err != nil {
 		return nil, err
@@ -188,10 +192,14 @@ func queryItems(ctx context.Context, store *sqlite.Store, source mousa.Source, q
 const queryCandidateLimit = 100
 
 func newRetrievalRequest(sourceID mousa.SourceID) (mousa.PolicyEvaluationRequest, error) {
+	return callerRetrievalRequest(sourceID, "cli")
+}
+
+func callerRetrievalRequest(sourceID mousa.SourceID, caller string) (mousa.PolicyEvaluationRequest, error) {
 	request := mousa.PolicyEvaluationRequest{
 		Schema: mousa.PolicyEvaluationRequestSchema, Action: mousa.SourceRetrievalAction,
-		CallerNamespace: localNamespace + ".caller", ExternalCallerID: "cli",
-		ExternalRequestID: "cli-" + rand.Text(),
+		CallerNamespace: localNamespace + ".caller", ExternalCallerID: caller,
+		ExternalRequestID: caller + "-" + rand.Text(),
 		PurposeNamespace:  localNamespace + ".purpose", ExternalPurposeID: "retrieval",
 		SourceID: sourceID, RequestedAtUsec: time.Now().UnixMicro(),
 	}

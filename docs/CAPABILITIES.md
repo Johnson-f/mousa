@@ -1,8 +1,9 @@
 # Supported local workflow
 
 Mousa is pre-alpha. The supported executable is `cmd/mousa`, built from source with
-Go 1.25 or newer. The core packages are internal, not a stable SDK. The CLI stores
-and retrieves evidence; it does not generate answers or establish factual truth.
+Go 1.25 or newer. The core packages are internal, not a stable SDK. Its CLI and
+local stdio MCP interface store and retrieve evidence; neither generates answers
+or establishes factual truth.
 
 ## Capability matrix
 
@@ -28,7 +29,8 @@ The [research record](RESEARCH.md) documents published measurements and limitati
 | Durable Source Trails and context packet IDs | Yes | Every query; `trail` inspection | Actual-CLI ID round-trip, current authorization, retired revisions; transaction rollback and rejected metadata filtering | Cold CLI and separate warm traced/current-query observations |
 | Classification records | Yes | No administration command | Canonical storage and validation | None; not automatic classification or classification-based authorization |
 | Semantic/hybrid retrieval, model inference, answer generation | No | No | Not implemented | None |
-| MCP, HTTP service, stable SDK, general connectors | No supported interface | No | Not implemented as supported interfaces | None |
+| Local stdio MCP | Yes | `mcp --caller <id> --source <id>` | Real SDK client/executable round trips, persistence, configured boundaries, committed prefix, framing, cancellation and shutdown | None; acceptance is not a performance or model-driven evaluation |
+| HTTP service, stable SDK, general connectors | No supported interface | No | Not implemented as supported interfaces | None |
 
 The [Git documentation consumer](../examples/docs/README.md) is a separate
 Python CLI example, not a core or `cmd/mousa` token-budget feature. Its opt-in
@@ -39,6 +41,156 @@ keeps the fragment and verified parent passage at 511 of 512 content tokens
 by omitting a duplicate path from citation headers; an unrelated `git-switch`
 passage is not selected. It does not establish model-window safety, answer
 quality or general relevance.
+
+## Local stdio MCP
+
+`mousa -store STORE mcp --caller cli --source inspection-notes
+--ingest-source inspection-notes` serves one local client over stdin/stdout.
+Repeat `--source` for each permitted JSONL source, and repeat `--ingest-source`
+only for sources that may accept items. Writes are disabled by default. Source
+IDs are exact, case-sensitive opaque identities in namespace `mousa-jsonl`,
+not paths to open. This interface cannot import directory sources.
+
+The store path, source allowlist and trusted caller ID come only from process
+arguments. Unknown sources, paths used as unconfigured source IDs, and tool
+fields such as `store`, `root` or `caller` are rejected before store mutation.
+An operator may configure an opaque source ID that looks like a path; it still
+does not grant filesystem access. Protect the executable invocation, store,
+WAL, backups and released output with local filesystem controls.
+
+`--caller cli` installs the same deployment-level allow used by CLI sync. It
+does not override a source-scoped deny or resume a withdrawn source. Other
+caller IDs use namespace `mousa-local.caller` and purpose
+`mousa-local.purpose` / `retrieval`, and require an applicable policy provisioned
+through the core separately. MCP does not expose policy administration or
+authenticate the startup identity. CLI `access --source ID allow|deny` and
+`withdraw --source ID` remain operator controls for their existing caller.
+
+### Protocol and tools
+
+The supported protocol is [MCP `2025-11-25`](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
+implemented with the official [Go SDK v1.8.0](https://github.com/modelcontextprotocol/go-sdk/releases/tag/v1.8.0).
+Initialization advertises the tools capability. If the client requests another
+version, the server offers `2025-11-25`; a client that cannot use it should
+disconnect. `tools/list` exposes the input and output JSON Schemas. No prompts,
+resources, roots, sampling, tasks or remote transport are exposed.
+
+| Tool | Required arguments | Optional arguments | Success `result` |
+|---|---|---|---|
+| `mousa_sync` | `source`, `items` | `segment_policy`: `fixed-v1` (default) or `passage-v1` | Existing sync report: action lists, `total_items`, segment policy, store-size sample and elapsed seconds |
+| `mousa_status` | `source` | None | Existing status report: collection state, active items, observations and recovery state |
+| `mousa_query` | `source`, `query`, `policy`: `original` or `dedup`, `budget_bytes` | `packing_policy`: `original` (default) or `exact-v1` | Existing evidence response, including authorization, selected text/ranges/digests, packet and trail IDs |
+| `mousa_trail` | `source`, `trail_id` | None | Existing filtered trail inspection with fresh authorization; no evidence text |
+
+For example, call `mousa_sync` with:
+
+```json
+{
+  "source": "inspection-notes",
+  "items": [
+    {"id": "notes/review@draft", "text": "The harbor inspection is scheduled for Friday."},
+    {"id": "notes/withdrawn", "deleted": true}
+  ]
+}
+```
+
+Then call `mousa_query` with:
+
+```json
+{"source":"inspection-notes","query":"harbor inspection","policy":"original","budget_bytes":4096}
+```
+
+Use the returned `result.trail_id` with `mousa_trail`. Items use the same strict
+record validation, normalization, immutable revision identities and atomic
+current-item activation as [JSONL input](#jsonl-input). There are no inferred
+associations or new packing/token-window rules. Evidence coordinates refer to
+normalized UTF-8 bytes; use the [same digest and range checks](#verify-a-selected-passages-location)
+as for CLI evidence. Treat every source text as untrusted data, not protocol,
+shell commands or instructions to the client.
+
+### Structured results and failure state
+
+Every completed known-tool call returns `structuredContent` with schema
+`mousa.mcp_result.v1`. A text content block contains the same serialized JSON
+for clients that do not consume structured content. Its object has:
+
+| Field | Meaning |
+|---|---|
+| `schema` | Always `mousa.mcp_result.v1`. |
+| `operation` | The invoked tool name. |
+| `source` | Configured source label, or an empty string when arguments failed decoding. |
+| `result` | Success payload described above; absent on a tool error. Its full schema is discoverable in that tool's `outputSchema`. |
+| `error` | Tool error object; absent on success. |
+
+`error` has `code`, a diagnostic `message` of at most 512 UTF-8 bytes,
+`completed_items`, and an optional one-based `failed_item` index. `completed_items`
+counts successfully applied item records, including no-op retries; their prefix
+remains committed. It is zero for errors outside item application. No partial
+success report is emitted on an ingestion error. Correct and replay the call:
+unchanged content remains a no-op and repeated tombstones report `absent`.
+
+Argument-envelope errors, unknown/unconfigured sources, disabled ingestion,
+and excessive item counts are checked before applying items. Item validation
+and size limits are checked in order, so a later invalid item does not undo
+earlier activations. Failure during one item's preparation may retain immutable
+history but does not activate that failed revision. This is not whole-batch
+atomicity. Omitted items are unchanged; deletion must be explicit.
+
+Tool errors set MCP `isError: true`. Boundary codes include
+`invalid_arguments`, `source_not_permitted`, `ingestion_not_permitted`,
+`invalid_item`, `resource_limit`, `busy` and `cancelled`; canonical storage errors
+retain their existing codes, with `operation_failed` for other failures.
+Authorization exclusions are successful query/inspection results, not tool
+errors: they carry current decision reasons but no selected evidence or
+historical trail payload. An allowed request for another source's trail returns
+`not_found`.
+
+Unknown tools/methods and malformed protocol parameters use SDK JSON-RPC errors.
+Invalid JSON or an oversized inbound frame terminates the stdio session with a
+bounded diagnostic on stderr, without a success message. Earlier completed
+requests/items remain durable; inspect status after reconnecting.
+
+### Limits, concurrency and shutdown
+
+| Bound | Maximum |
+|---|---|
+| Inbound JSON-RPC frame | 2 MiB |
+| Configured sources | 128 |
+| Item records per sync call | 128 |
+| Serialized JSON bytes per item | 1 MiB |
+| Decoded UTF-8 text per item | 256 KiB |
+| Item ID | 4,096 UTF-8 bytes; nonempty, no NUL |
+| Query text | 4,096 UTF-8 bytes; nonempty |
+| Released-text budget | Integer from 1 through 65,536 bytes |
+| Lexical candidates | 100, preserving the existing query contract |
+| Concurrent tool calls admitted | 8; excess calls return `busy` |
+| Tool-call deadline, including time waiting for the store | 30 seconds |
+
+JSON Schema string lengths count characters; byte bounds above are additionally
+enforced at runtime. Frame overhead and JSON escaping also consume the framing
+and per-item bounds. A released-text budget is not a cap on protocol output,
+metadata, model tokens, or a complete model context window.
+
+The process owns one canonical store connection and serializes complete
+application calls, including each whole multi-item sync. Separate processes
+still do not form a supported concurrent source-wide synchronization protocol.
+Coordinate external ingestion and administrative changes; SQLite conflicts are
+errors, not an implicit retry mechanism.
+
+Cancellation is propagated into the current operation, including queued calls.
+Already completed item activations are not rolled back by cancellation.
+SQLite's existing one-second busy timeout remains unchanged; cancellation is
+not a promise of instantaneous interruption of its busy wait.
+[Stdio shutdown](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#stdio)
+uses stdin closure/disconnect or SIGINT/SIGTERM, not a shutdown tool. The server
+cancels pending work, drains handlers and closes its owned store. Stdout contains
+only protocol messages; diagnostics go to stderr.
+
+The deterministic actual-client regression command is
+`CGO_ENABLED=0 go test ./cmd/mousa -run TestMCP -count=1 -v`. It launches the built
+executable with the official SDK client and temporary SQLite stores, validates
+discovered output schemas and logs client/server receipts. It is not a
+model-driven agent run or a comparative measurement.
 
 ## Item identity and lifecycle
 

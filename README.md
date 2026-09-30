@@ -62,7 +62,7 @@ Mousa is intended to expose one portable core through narrow interfaces for:
 - documented HTTP clients where a service boundary is justified;
 - ordinary JSON and JSONL import and export.
 
-The first shipped interface is the local vertical slice, `cmd/mousa`.
+The supported executable, `cmd/mousa`, provides the local CLI and a stdio MCP interface.
 
 ## Local usage (cmd/mousa)
 
@@ -263,8 +263,53 @@ Integrity checks, authorization, current activation, and factual truth are separ
 properties. Classification records are not automatic categorization or
 classification-based authorization.
 
-SDK, MCP, HTTP, and human-facing application interfaces remain planned. They are not
-part of the supported CLI workflow.
+## Local MCP usage
+
+The same executable serves MCP `2025-11-25` over stdio, backed directly by the
+canonical Go/SQLite operations. Configure an MCP client's executable and
+arguments, for example:
+
+```json
+{
+  "mcpServers": {
+    "mousa": {
+      "command": "/absolute/path/mousa",
+      "args": [
+        "-store", "/absolute/path/evidence.sqlite",
+        "mcp", "--caller", "cli",
+        "--source", "inspection-notes",
+        "--ingest-source", "inspection-notes"
+      ]
+    }
+  }
+}
+```
+
+The client launches the process and performs initialization and tool discovery.
+The four tools are `mousa_sync`, `mousa_status`, `mousa_query` and `mousa_trail`.
+Store, permitted sources and trusted caller are fixed at startup. Ingestion is
+disabled unless that source also has `--ingest-source`. There is no listener,
+directory import, shell, policy administration or withdrawal tool.
+
+`--caller cli` uses the existing CLI retrieval policy, including source-scoped
+denials and withdrawal. This is trusted local configuration, not caller
+authentication or protection from someone who can modify the store. Other
+caller IDs require matching policy provisioned separately; they do not inherit
+CLI access.
+
+Tool calls return structured, versioned results. Queries require an explicit
+query-term policy and released-text byte budget, and return evidence bytes,
+normalized coordinates, digests, packet IDs and Source Trail IDs. Retrieved text
+is data, not instructions. See [tool schemas, limits, errors and lifecycle](docs/CAPABILITIES.md#local-stdio-mcp).
+The actual-executable MCP client regressions run with:
+
+```sh
+CGO_ENABLED=0 go test ./cmd/mousa -run TestMCP -count=1 -v
+```
+
+HTTP, a stable public SDK, general connectors and human-facing application
+interfaces remain unsupported. MCP acceptance is deterministic client/server
+verification, not a model-driven agent or retrieval-quality measurement.
 
 ## Design principles
 

@@ -52,6 +52,8 @@ func main() {
 		err = withdrawCommand(ctx, *storePath, rest)
 	case "mcp":
 		err = mcpCommand(ctx, *storePath, rest)
+	case "plugin":
+		err = pluginCommand(*storePath, rest)
 	default:
 		fmt.Fprintf(os.Stderr, "mousa: unknown command %q\n", command)
 		usage()
@@ -84,8 +86,12 @@ commands:
   withdraw <dir>             withdraw a directory source from retrieval (JSON)
   withdraw --source <id>     withdraw a JSONL source from retrieval (JSON)
   mcp --caller <id> --source <id>
-                            serve the configured JSONL sources over stdio MCP
+                            serve configured JSONL sources over stdio MCP
+                            --openai-extensions enables evidence mentions/resources
+                            --http-config <file> selects OAuth-protected loopback HTTP
                             repeat --source; add --ingest-source <id> to permit writes
+  plugin --out <new-dir> --source <id> --consent-to-share
+                            create a consent-bound local desktop/Codex marketplace
 
 query options (before positional arguments):
   --policy original|dedup    query-term policy; default original retains repetition

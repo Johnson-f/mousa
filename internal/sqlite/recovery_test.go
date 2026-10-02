@@ -282,8 +282,8 @@ func TestInjectedCommittedMigrationResumesAsCurrent(t *testing.T) {
 	if err := store.db.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("migration count: %v", err)
 	}
-	if count != 10 {
-		t.Fatalf("migration count = %d, want 10", count)
+	if count != len(migrations) {
+		t.Fatalf("migration count = %d, want %d", count, len(migrations))
 	}
 	backupAfter, err := os.ReadFile(backupPath)
 	if err != nil {
@@ -352,8 +352,8 @@ func TestInterruptedMigrationAndRecordWriteRecoverOnReopen(t *testing.T) {
 		if err := store.db.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&migrationCount); err != nil {
 			t.Fatalf("migration count: %v", err)
 		}
-		if migrationCount != 10 {
-			t.Fatalf("migration count = %d, want 10", migrationCount)
+		if migrationCount != len(migrationSet) {
+			t.Fatalf("migration count = %d, want %d", migrationCount, len(migrationSet))
 		}
 		backup, err := connect(ctx, path+".pre-migrate-v1-to-v2.sqlite", true)
 		if err != nil {
@@ -492,6 +492,10 @@ func TestFailedLexicalMigrationRollsBackAllState(t *testing.T) {
 
 func TestInterruptedAndCommittedLexicalMigrationRecoverOnReopen(t *testing.T) {
 	ctx := context.Background()
+	migrations, err := loadMigrations(migrationFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Run("interrupted after every migration write", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "interrupted-lexical.sqlite")
 		createVersionTwo(t, path)
@@ -503,8 +507,8 @@ func TestInterruptedAndCommittedLexicalMigrationRecoverOnReopen(t *testing.T) {
 		}
 		defer store.Close()
 		var version int
-		if err := store.db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 10 {
-			t.Fatalf("recovered version = %d err=%v, want 10", version, err)
+		if err := store.db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != len(migrations) {
+			t.Fatalf("recovered version = %d err=%v, want %d", version, err, len(migrations))
 		}
 	})
 	t.Run("committed before marker", func(t *testing.T) {
@@ -517,8 +521,8 @@ func TestInterruptedAndCommittedLexicalMigrationRecoverOnReopen(t *testing.T) {
 		}
 		defer store.Close()
 		var version int
-		if err := store.db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != 10 {
-			t.Fatalf("committed version = %d err=%v, want 10", version, err)
+		if err := store.db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != len(migrations) {
+			t.Fatalf("committed version = %d err=%v, want %d", version, err, len(migrations))
 		}
 	})
 }
@@ -591,7 +595,7 @@ func TestInterruptedAndCommittedClassificationMigrationRecoverOnReopen(t *testin
 			t.Fatal(err)
 		}
 		defer store.Close()
-		assertMigrationVersion(t, path, 10)
+		assertMigrationVersion(t, path, len(mustMigrations(t)))
 		backup, err := connect(ctx, path+".pre-migrate-v3-to-v4.sqlite", true)
 		if err != nil {
 			t.Fatal(err)
@@ -615,7 +619,7 @@ func TestInterruptedAndCommittedClassificationMigrationRecoverOnReopen(t *testin
 			t.Fatal(err)
 		}
 		defer store.Close()
-		assertMigrationVersion(t, path, 10)
+		assertMigrationVersion(t, path, len(mustMigrations(t)))
 		if _, err := os.Stat(path + ".pre-migrate-v3-to-v4.sqlite"); !os.IsNotExist(err) {
 			t.Fatalf("current committed reopen created backup: %v", err)
 		}
@@ -761,7 +765,7 @@ func TestInterruptedAndCommittedPolicyDefinitionMigrationRecoverOnReopen(t *test
 			t.Fatal(err)
 		}
 		defer store.Close()
-		assertMigrationVersion(t, path, 10)
+		assertMigrationVersion(t, path, len(mustMigrations(t)))
 		backup, err := connect(ctx, path+".pre-migrate-v4-to-v5.sqlite", true)
 		if err != nil {
 			t.Fatal(err)
@@ -785,7 +789,7 @@ func TestInterruptedAndCommittedPolicyDefinitionMigrationRecoverOnReopen(t *test
 			t.Fatal(err)
 		}
 		defer store.Close()
-		assertMigrationVersion(t, path, 10)
+		assertMigrationVersion(t, path, len(mustMigrations(t)))
 		if _, err := os.Stat(path + ".pre-migrate-v4-to-v5.sqlite"); !os.IsNotExist(err) {
 			t.Fatalf("current committed reopen created backup: %v", err)
 		}
@@ -860,7 +864,7 @@ func TestInterruptedAndCommittedPolicyBindingMigrationRecoverOnReopen(t *testing
 			t.Fatal(err)
 		}
 		defer store.Close()
-		assertMigrationVersion(t, path, 10)
+		assertMigrationVersion(t, path, len(mustMigrations(t)))
 		backup, err := connect(ctx, path+".pre-migrate-v5-to-v6.sqlite", true)
 		if err != nil {
 			t.Fatal(err)
@@ -880,7 +884,7 @@ func TestInterruptedAndCommittedPolicyBindingMigrationRecoverOnReopen(t *testing
 			t.Fatal(err)
 		}
 		defer store.Close()
-		assertMigrationVersion(t, path, 10)
+		assertMigrationVersion(t, path, len(mustMigrations(t)))
 		if _, err := os.Stat(path + ".pre-migrate-v5-to-v6.sqlite"); !os.IsNotExist(err) {
 			t.Fatalf("current committed reopen created backup: %v", err)
 		}

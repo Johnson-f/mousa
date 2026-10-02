@@ -39,11 +39,15 @@ type mcpApplication struct {
 	sources map[string]mcpSource
 	gate    chan struct{}
 	slots   chan struct{}
+	openai  bool
+	http    bool
 }
 
 func mcpCommand(parent context.Context, storePath string, args []string) error {
 	flags := newCommandFlags("mcp")
 	caller := flags.String("caller", "", "trusted local caller ID (required; cli uses the existing CLI policy)")
+	openai := flags.Bool("openai-extensions", false, "enable OpenAI composer evidence mentions and resource reads; retrieved data is shared with the host")
+	httpConfigPath := flags.String("http-config", "", "OAuth-protected loopback HTTP configuration; stdio when omitted")
 	var allowed, writable []string
 	flags.Func("source", "permitted JSONL source ID; repeatable", func(value string) error { allowed = append(allowed, value); return nil })
 	flags.Func("ingest-source", "permit ingestion into an already permitted source; repeatable", func(value string) error { writable = append(writable, value); return nil })
@@ -76,6 +80,14 @@ func mcpCommand(parent context.Context, storePath string, args []string) error {
 	if _, err := callerRetrievalRequest(sources[allowed[0]].source.ID, *caller); err != nil {
 		return usageError{err.Error()}
 	}
+	var httpConfig *mcpHTTPConfig
+	if *httpConfigPath != "" {
+		var err error
+		httpConfig, err = loadMCPHTTPConfig(*httpConfigPath)
+		if err != nil {
+			return usageError{err.Error()}
+		}
+	}
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ctx, cancel := context.WithCancelCause(ctx)
@@ -84,7 +96,7 @@ func mcpCommand(parent context.Context, storePath string, args []string) error {
 	if err != nil {
 		return err
 	}
-	application := &mcpApplication{store: store, path: storePath, caller: *caller, sources: sources, gate: make(chan struct{}, 1), slots: make(chan struct{}, 8)}
+	application := &mcpApplication{store: store, path: storePath, caller: *caller, sources: sources, gate: make(chan struct{}, 1), slots: make(chan struct{}, 8), openai: *openai, http: httpConfig != nil}
 	// This is the same fixed caller and deployment policy used by CLI sync.
 	// Source-scoped deny and lifecycle withdrawal still take precedence.
 	if *caller == "cli" {
@@ -94,7 +106,11 @@ func mcpCommand(parent context.Context, storePath string, args []string) error {
 		var server *mcp.Server
 		server, err = application.server(ctx)
 		if err == nil {
-			err = server.Run(ctx, &mcpDisconnectTransport{Transport: &mcp.StdioTransport{MaxLineLength: mcpMaxFrameBytes}, cancel: cancel})
+			if httpConfig != nil {
+				err = runMCPHTTP(ctx, server, httpConfig)
+			} else {
+				err = server.Run(ctx, &mcpDisconnectTransport{Transport: &mcp.StdioTransport{MaxLineLength: mcpMaxFrameBytes}, cancel: cancel})
+			}
 			cause := context.Cause(ctx)
 			if errors.Is(cause, io.EOF) || errors.Is(cause, context.Canceled) {
 				err = nil
@@ -158,7 +174,30 @@ func (a *mcpApplication) server(serverContext context.Context) (*mcp.Server, err
 		return nil, err
 	}
 	for _, definition := range definitions {
+		switch definition.Name {
+		case "mousa_sync":
+			definition.Title = "Ingest Mousa items"
+		case "mousa_status":
+			definition.Title = "Inspect Mousa source status"
+		case "mousa_query":
+			definition.Title = "Retrieve Mousa evidence"
+		case "mousa_trail":
+			definition.Title = "Inspect Mousa Source Trail"
+		}
+		closed := false
+		destructive := definition.Name == "mousa_sync"
+		definition.Annotations = &mcp.ToolAnnotations{ReadOnlyHint: definition.Name == "mousa_status", IdempotentHint: definition.Name == "mousa_status", DestructiveHint: &destructive, OpenWorldHint: &closed}
+		if a.http {
+			scopes := []string{"mousa:read"}
+			if destructive {
+				scopes = append(scopes, "mousa:write")
+			}
+			definition.Meta = mcp.Meta{"securitySchemes": []any{map[string]any{"type": "oauth2", "scopes": scopes}}}
+		}
 		server.AddTool(definition, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if definition.Name == "mousa_sync" && a.http && (req.Extra == nil || req.Extra.TokenInfo == nil || !slices.Contains(req.Extra.TokenInfo.Scopes, "mousa:write")) {
+				return mcpFailure(definition.Name, "", "insufficient_scope", errors.New("ingestion requires mousa:write"), 0, 0)
+			}
 			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 			stop := context.AfterFunc(serverContext, cancel)
@@ -171,6 +210,9 @@ func (a *mcpApplication) server(serverContext context.Context) (*mcp.Server, err
 			}
 			return a.call(ctx, definition.Name, req.Params.Arguments)
 		})
+	}
+	if a.openai {
+		a.addOpenAIExtensions(server, serverContext, names)
 	}
 	return server, nil
 }

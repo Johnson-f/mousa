@@ -288,8 +288,8 @@ arguments, for example:
 The client launches the process and performs initialization and tool discovery.
 The four tools are `mousa_sync`, `mousa_status`, `mousa_query` and `mousa_trail`.
 Store, permitted sources and trusted caller are fixed at startup. Ingestion is
-disabled unless that source also has `--ingest-source`. There is no listener,
-directory import, shell, policy administration or withdrawal tool.
+disabled unless that source also has `--ingest-source`. The default stdio mode
+has no listener, directory import, shell, policy administration or withdrawal tool.
 
 `--caller cli` uses the existing CLI retrieval policy, including source-scoped
 denials and withdrawal. This is trusted local configuration, not caller
@@ -307,9 +307,119 @@ The actual-executable MCP client regressions run with:
 CGO_ENABLED=0 go test ./cmd/mousa -run TestMCP -count=1 -v
 ```
 
-HTTP, a stable public SDK, general connectors and human-facing application
-interfaces remain unsupported. MCP acceptance is deterministic client/server
-verification, not a model-driven agent or retrieval-quality measurement.
+MCP acceptance is deterministic client/server verification, not a model-driven
+agent or retrieval-quality measurement. A stable public SDK and general
+connectors remain unsupported.
+
+### Bounded project-history consumer
+
+[`examples/memory/memory.py`](examples/memory/memory.py) uses the native stdio
+tools with one independently authored, 28-document synthetic project history.
+It releases attributed passages, not answers. Python 3 on Linux is required;
+no Python package, model, network service or second store is required.
+
+Each command starts a fresh consumer and Mousa process, negotiates MCP, captures
+decoded JSON request/response receipts, then closes and reaps the process.
+Receipts are not original wire framing. Use an isolated
+store and a distinct receipt file for each command:
+
+```sh
+python3 examples/memory/memory.py --mousa ./mousa --store memory.sqlite --receipts ingest.jsonl ingest
+python3 examples/memory/memory.py --mousa ./mousa --store memory.sqlite --receipts before.jsonl ask 'How does saving an edit survive the computer losing power?' --budget-bytes 2048
+python3 examples/memory/memory.py --mousa ./mousa --store memory.sqlite --receipts change.jsonl change
+python3 examples/memory/memory.py --mousa ./mousa --store memory.sqlite --receipts after.jsonl ask 'How long may delivery attempts continue after the first failure?' --budget-bytes 2048
+```
+
+`ingest` applies explicit item identities; `change` applies the fixture's same-item
+correction and explicit tombstone. Omission never deletes an item. The tombstone
+deactivates that item, not its source. `inspect TRAIL_ID` inspects an original
+query's historical selection under fresh authorization without releasing text.
+Do not run `ingest` again after `change` unless restoring the initial fixture is
+intentional. Receipt files must not already exist.
+
+Custom histories are validated before receipt creation or server startup.
+Originals and corrections require nonempty UTF-8 author, date and URI strings,
+string text and its raw UTF-8 SHA-256 digest. Item IDs contain 1–4096 UTF-8 bytes
+without NUL. Text, serialized items and complete sync requests must fit the
+native MCP limits (262144, 1048576 and 2097152 bytes respectively).
+Changes name distinct existing items
+and contain either corrected text or `deleted: true`, never both. Empty change
+commands and normalized revision collisions are rejected before startup.
+
+`--timeout` must be finite and positive. It bounds each request's pipe writes
+and response wait, including unrelated notifications; history and executable
+hashing, receipt-file I/O, JSON parsing and process teardown are separate
+boundaries. Partial writes are completed before a request receipt is recorded.
+Each response frame is limited to 32 MiB, excluding its newline.
+Responses already buffered before a request cannot fulfill it, even if their
+IDs predict that request.
+Native text and structured tool results must agree, including their source.
+Transport, tool and receipt errors fail the command rather than produce
+successful empty evidence. Reports distinguish incomplete receipt capture and
+process cleanup diagnostics from the causal error.
+
+The consumer checks released text, digests and normalized byte coordinates
+against the attributed fixture revision. Revision matching removes a leading
+UTF-8 BOM and normalizes CRLF or bare CR to LF, as ingestion does. If multiple
+fixture revisions normalize to the same bytes, attribution is ambiguous and
+loading and rendering fail. Corrected revisions use their own author, date and URI.
+These synthetic attribution labels are not signatures or
+authenticated authorship. The rendered context retains the exact passages and
+identities; its byte count and digest are separate from the evidence-text budget.
+No tokenizer or whole-model context limit is supplied.
+
+Twenty frozen development cases retrieved all 21 required initial passages,
+including separately attributed multi-document passages. Correction, tombstone,
+restart and original-trail checks passed. All three unsupported questions also
+released unrelated passages; `evidence_available` does not establish semantic
+support. Across 25 initial/post-change observations, 309 of 334 released passages
+did not support the frozen requirements. Literal OR-term retrieval can release
+misleading near matches. This is deterministic retrieval/lifecycle evaluation,
+not held-out relevance, semantic memory or successful model-driven agent use.
+
+The [frozen protocol, measured source and exact receipts](https://github.com/graydeon/mousa-benchmarks/tree/b1be28ac9f12134a7513c1e28fe884e7f657c988/results/2026-09-30-agent-memory)
+retain the measured consumer's original identity. Later transport and validation
+fixes are not relabeled as that run or as native-agent acceptance.
+
+### ChatGPT desktop and Codex CLI
+
+The integration follows [OpenAI MCP Extensions](https://github.com/openai/mcp-extensions):
+composer evidence mentions, authorized resource reads and plugin onboarding.
+Extensions do not establish transport, authentication or directory publication.
+The four core tools remain the fallback for hosts without desktop extensions.
+
+Build Mousa, ingest only data you intend to share, then create a new local
+marketplace. This example uses the maintained synthetic fixture:
+
+```sh
+CGO_ENABLED=0 go build -o ./mousa ./cmd/mousa
+./mousa -store ./evidence.sqlite sync --source fixture < eval/local/openai-fixture.jsonl
+./mousa -store ./evidence.sqlite plugin --out ./mousa-marketplace \
+  --source fixture --consent-to-share
+codex plugin marketplace add ./mousa-marketplace
+codex plugin add mousa@mousa-local
+codex plugin list --marketplace mousa-local --json
+```
+
+The package includes root `plugin.json`, `mcp.json`, setup/evidence skills and
+a contained executable. Its store path and source permissions are bound to
+this user. Regenerate configuration for another user; do not distribute private
+store paths, stores or credentials. The executable targets the platform used
+to build it. Existing output directories are refused. Ingestion remains disabled
+unless separately requested with `--ingest-source`.
+
+In ChatGPT desktop, install the local marketplace plugin, run its onboarding,
+confirm the permitted sources and sharing consent, then search for Cedar using
+the composer mention picker. Codex CLI can use the evidence skill and core
+tools without a mention picker. The directory is local, not a public listing.
+Actual desktop interaction and model-driven CLI use require the corresponding
+supported app/account and remain separate from credential-free acceptance.
+
+The host/provider receives selected text, labels, identifiers, coordinates,
+digests and provenance metadata. Mousa does not filter secrets. See
+[extension, privacy, HTTP and publication boundaries](docs/CAPABILITIES.md#openai-mcp-extensions).
+Local stdio requires no tunnel. Hosted/private connectivity may require a
+separately configured Secure MCP Tunnel; it is not public directory deployment.
 
 ## Design principles
 

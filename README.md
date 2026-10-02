@@ -313,10 +313,10 @@ connectors remain unsupported.
 
 ### Bounded project-history consumer
 
-[`examples/memory/memory.py`](examples/memory/memory.py) uses the native stdio
-tools with one independently authored, 28-document synthetic project history.
-It releases attributed passages, not answers. Python 3 on Linux is required;
-no Python package, model, network service or second store is required.
+[`examples/memory/memory.py`](examples/memory/memory.py) uses native stdio MCP
+with an explicit history source. The default is an independently authored,
+28-document synthetic fixture. It releases attributed passages, not answers.
+Python 3 on Linux is optional; no package, model, service or second store is required.
 
 Each command starts a fresh consumer and Mousa process, negotiates MCP, captures
 decoded JSON request/response receipts, then closes and reaps the process.
@@ -342,9 +342,71 @@ Originals and corrections require nonempty UTF-8 author, date and URI strings,
 string text and its raw UTF-8 SHA-256 digest. Item IDs contain 1–4096 UTF-8 bytes
 without NUL. Text, serialized items and complete sync requests must fit the
 native MCP limits (262144, 1048576 and 2097152 bytes respectively).
-Changes name distinct existing items
-and contain either corrected text or `deleted: true`, never both. Empty change
-commands and normalized revision collisions are rejected before startup.
+The declared source must be nonempty lossless UTF-8 without NUL (the process argv
+boundary). Startup permits only that source; ingestion permission is added only
+for `ingest`, `change` or `apply`. The v1 fixture retains `documents` and distinct
+existing-item `changes`, containing corrected text or `deleted: true`, never both.
+Empty change commands are rejected before startup.
+
+For multiple lifecycle epochs, use `mousa-project-history-v2`:
+
+```json
+{
+  "schema": "mousa-project-history-v2",
+  "source": "project-alpha",
+  "revisions": [
+    {
+      "revision": "initial",
+      "id": "note",
+      "text": "",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "author": "Synthetic author",
+      "date": "epoch-1",
+      "uri": "synthetic://project/note"
+    }
+  ],
+  "epochs": [
+    {"epoch": "create", "operations": [{"id": "note", "revision": "initial"}]},
+    {"epoch": "delete", "operations": [{"id": "note", "deleted": true}]},
+    {"epoch": "restore", "operations": [{"id": "note", "revision": "initial"}]}
+  ]
+}
+```
+
+Save this as `history.json`, then run with a fresh store and distinct receipts:
+
+```sh
+python3 examples/memory/memory.py --mousa ./mousa --history history.json --store chronology.sqlite --receipts create.jsonl apply create
+python3 examples/memory/memory.py --mousa ./mousa --history history.json --store chronology.sqlite --receipts delete.jsonl apply delete
+python3 examples/memory/memory.py --mousa ./mousa --history history.json --store chronology.sqlite --receipts restore.jsonl apply restore
+python3 examples/memory/memory.py --mousa ./mousa --history history.json --store chronology.sqlite --receipts status.jsonl status
+python3 examples/memory/memory.py --mousa ./mousa --history history.json --store chronology.sqlite --receipts query.jsonl ask note --policy dedup --packing-policy exact-v1 --budget-bytes 2048
+```
+
+`apply EPOCH` sends only that epoch's ordered operations. It neither replays
+predecessors nor checks a Python progress ledger. A revert explicitly references
+old content; a restore also supplies the referenced content. Exact replay is
+allowed. Each epoch contains 1–128 distinct item operations; histories contain
+1–128 distinct epoch labels and 1–4096 distinct revision labels. Array order is
+fixture chronology, not authenticated time. The store may already be ahead of
+the requested epoch. `requested_epoch` describes the invocation, while native
+actions and `source_status` describe observed state.
+
+Native sync commits each item separately. A later failure retains its committed
+prefix, reported by `native_error.error.completed_items` and `failed_item`.
+There is no automatic retry, batch splitting or rollback. Repair requires a new
+explicit invocation. Known input and frame bounds are preflighted before launch.
+
+`ask` accepts native query policies `original` (default) and `dedup`, and packing
+policies `original` (default) and `exact-v1`. Dedup folds repeated query terms;
+exact packing omits byte-identical passages after the first fitting selection.
+Neither mode supplies semantic support. Requested and returned identities must
+agree. Evidence budgets are 1–65536 bytes; queries contain 1–4096 UTF-8 bytes.
+
+JSON reports distinguish `operation_status`, overall `status`, `capture_complete`
+and process teardown. Consumer `PASS` means completed operation/capture/cleanup,
+not scenario acceptance. `assertion_status` and `agent_acceptance` remain `NOT RUN`
+in consumer output. Preflight failures emit a report without creating receipts.
 
 `--timeout` must be finite and positive. It bounds each request's pipe writes
 and response wait, including unrelated notifications; history and executable
@@ -360,9 +422,12 @@ process cleanup diagnostics from the causal error.
 
 The consumer checks released text, digests and normalized byte coordinates
 against the attributed fixture revision. Revision matching removes a leading
-UTF-8 BOM and normalizes CRLF or bare CR to LF, as ingestion does. If multiple
-fixture revisions normalize to the same bytes, attribution is ambiguous and
-loading and rendering fail. Corrected revisions use their own author, date and URI.
+UTF-8 BOM and normalizes CRLF or bare CR to LF, as ingestion does. Revisions
+with equal normalized bytes must have identical author/date/URI attribution;
+conflicts fail preflight and rendering. Equivalent revisions with identical
+attribution share the evidence identity and expose all matching `revision_labels`,
+not an arbitrarily chosen epoch. Corrected, restored and reverted selections use
+their own revision's metadata.
 These synthetic attribution labels are not signatures or
 authenticated authorship. The rendered context retains the exact passages and
 identities; its byte count and digest are separate from the evidence-text budget.

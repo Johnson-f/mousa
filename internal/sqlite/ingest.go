@@ -468,7 +468,24 @@ func getSourceWithdrawal(ctx context.Context, q queryRower, id mousa.WithdrawalI
 }
 
 func verifyIngestRecords(ctx context.Context, db *sql.DB) error {
-	rows, err := db.QueryContext(ctx, `SELECT observation_id FROM ingest_receipts ORDER BY observation_id`)
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return startupError("begin ingest verification", err)
+	}
+	defer tx.Rollback()
+	// Source state is mutable, so reuse its verified status only in this snapshot.
+	verifiedSources := make(map[mousa.SourceID]struct{})
+	verifyState := func(id mousa.SourceID) error {
+		if _, verified := verifiedSources[id]; verified {
+			return nil
+		}
+		if _, err := getIngestState(ctx, tx, id); err != nil {
+			return err
+		}
+		verifiedSources[id] = struct{}{}
+		return nil
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT observation_id FROM ingest_receipts ORDER BY observation_id`)
 	if err != nil {
 		return startupError("scan ingest receipts", err)
 	}
@@ -481,6 +498,10 @@ func verifyIngestRecords(ctx context.Context, db *sql.DB) error {
 		}
 		observations = append(observations, append([]byte(nil), id...))
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return startupError("scan ingest receipts", err)
+	}
 	if err := rows.Close(); err != nil {
 		return startupError("scan ingest receipts", err)
 	}
@@ -490,15 +511,15 @@ func verifyIngestRecords(ctx context.Context, db *sql.DB) error {
 		}
 		var id mousa.ObservationID
 		copy(id[:], raw)
-		receipt, err := getIngestReceipt(ctx, db, id)
+		receipt, err := getIngestReceipt(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		if _, err := getIngestState(ctx, db, receipt.SourceID); err != nil {
+		if err := verifyState(receipt.SourceID); err != nil {
 			return integrity("scan ingest receipts", "receipt source state is missing or damaged")
 		}
 	}
-	rows, err = db.QueryContext(ctx, `SELECT id FROM source_withdrawals ORDER BY id`)
+	rows, err = tx.QueryContext(ctx, `SELECT id FROM source_withdrawals ORDER BY id`)
 	if err != nil {
 		return startupError("scan source withdrawals", err)
 	}
@@ -511,6 +532,10 @@ func verifyIngestRecords(ctx context.Context, db *sql.DB) error {
 		}
 		withdrawals = append(withdrawals, append([]byte(nil), id...))
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return startupError("scan source withdrawals", err)
+	}
 	if err := rows.Close(); err != nil {
 		return startupError("scan source withdrawals", err)
 	}
@@ -520,15 +545,15 @@ func verifyIngestRecords(ctx context.Context, db *sql.DB) error {
 		}
 		var id mousa.WithdrawalID
 		copy(id[:], raw)
-		withdrawal, err := getSourceWithdrawal(ctx, db, id)
+		withdrawal, err := getSourceWithdrawal(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		if _, err := getIngestState(ctx, db, withdrawal.SourceID); err != nil {
+		if err := verifyState(withdrawal.SourceID); err != nil {
 			return integrity("scan source withdrawals", "withdrawal source state is missing or damaged")
 		}
 	}
-	rows, err = db.QueryContext(ctx, `SELECT source_id FROM source_ingest_state ORDER BY source_id`)
+	rows, err = tx.QueryContext(ctx, `SELECT source_id FROM source_ingest_state ORDER BY source_id`)
 	if err != nil {
 		return startupError("scan ingest state", err)
 	}
@@ -541,6 +566,10 @@ func verifyIngestRecords(ctx context.Context, db *sql.DB) error {
 		}
 		sources = append(sources, append([]byte(nil), id...))
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return startupError("scan ingest state", err)
+	}
 	if err := rows.Close(); err != nil {
 		return startupError("scan ingest state", err)
 	}
@@ -550,9 +579,12 @@ func verifyIngestRecords(ctx context.Context, db *sql.DB) error {
 		}
 		var id mousa.SourceID
 		copy(id[:], raw)
-		if _, err := getIngestState(ctx, db, id); err != nil {
+		if err := verifyState(id); err != nil {
 			return err
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return startupError("finish ingest verification", err)
 	}
 	return nil
 }

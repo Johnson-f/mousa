@@ -14,7 +14,7 @@ import (
 //go:embed openai_plugin
 var openAIPlugin embed.FS
 
-func pluginCommand(storePath string, args []string) error {
+func pluginCommand(storePath string, args []string) (resultErr error) {
 	flags := newCommandFlags("plugin")
 	output := flags.String("out", "", "new local marketplace directory (required)")
 	consent := flags.Bool("consent-to-share", false, "consent to share permitted evidence, identifiers, provenance and audit metadata with the configured host")
@@ -60,6 +60,12 @@ func pluginCommand(storePath string, args []string) error {
 	if err := os.Mkdir(root, 0700); err != nil {
 		return err
 	}
+	complete := false
+	defer func() {
+		if !complete {
+			resultErr = errors.Join(resultErr, os.RemoveAll(root))
+		}
+	}()
 	write := func(name string, content []byte) error {
 		path := filepath.Join(root, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -134,6 +140,7 @@ func pluginCommand(storePath string, args []string) error {
 	if err := write(".codex/config.toml", []byte("[plugins.\"mousa@mousa-local\"]\nenabled = true\n")); err != nil {
 		return err
 	}
+	complete = true
 	if err := emit(map[string]any{"marketplace": root, "plugin": filepath.Join(root, "plugins", "mousa"), "store": store, "sources": sources, "ingestion_sources": writable, "consent_to_share": true, "directory_submission_ready": false}); err != nil {
 		return errors.New("plugin written but result could not be emitted")
 	}

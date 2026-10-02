@@ -235,7 +235,12 @@ func (store *Store) CompleteLocalRecovery(ctx context.Context, sourceID mousa.So
 }
 
 func verifyLocalItemRecords(ctx context.Context, db *sql.DB) error {
-	rows, err := db.QueryContext(ctx, `SELECT source_id, item_id FROM local_items ORDER BY source_id, item_id`)
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return startupError("begin local item verification", err)
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT source_id, item_id FROM local_items ORDER BY source_id, item_id`)
 	if err != nil {
 		return classify("verify local items", err)
 	}
@@ -267,12 +272,12 @@ func verifyLocalItemRecords(ctx context.Context, db *sql.DB) error {
 		return classify("finish local items scan", err)
 	}
 	for _, k := range keys {
-		item, err := getLocalItem(ctx, db, k.source, k.item)
+		item, err := getLocalItem(ctx, tx, k.source, k.item)
 		if err != nil {
 			return err
 		}
 		var total, indexed int
-		err = db.QueryRowContext(ctx, `SELECT count(*), count(lr.segment_id) FROM segments AS s
+		err = tx.QueryRowContext(ctx, `SELECT count(*), count(lr.segment_id) FROM segments AS s
 			LEFT JOIN segment_lexical_rows AS lr ON lr.segment_id = s.id WHERE s.representation_id = ?`, item.RepresentationID[:]).Scan(&total, &indexed)
 		if err != nil {
 			return classify("verify local item index", err)
@@ -282,7 +287,7 @@ func verifyLocalItemRecords(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	var orphan bool
-	err = db.QueryRowContext(ctx, `SELECT EXISTS(
+	err = tx.QueryRowContext(ctx, `SELECT EXISTS(
 		SELECT 1 FROM segment_lexical_rows AS lr
 		JOIN segments AS s ON s.id = lr.segment_id
 		JOIN representation_inputs AS ri ON ri.representation_id = s.representation_id
@@ -298,6 +303,9 @@ func verifyLocalItemRecords(ctx context.Context, db *sql.DB) error {
 	}
 	if orphan {
 		return integrity("verify managed lexical rows", "indexed local revision is not active")
+	}
+	if err := tx.Commit(); err != nil {
+		return startupError("finish local item verification", err)
 	}
 	return nil
 }

@@ -27,6 +27,86 @@ RAG/answer-quality benchmark is applicable. Memory benchmarks (LongMemEval,
 MemoryAgentBench) and FreshStack await the corresponding retrieval capabilities;
 see the [implemented and planned capabilities](../README.md#foundation).
 
+## Startup verification at 16,384 documents
+
+A bounded synthetic retention fixture contains 16,384 original documents,
+16,386 observations and 16,383 active items after correction and withdrawal.
+Three matched process-restart pairs compared schema 10 with the schema-11
+active-representation index, read snapshots, ingestion source-state reuse
+within each snapshot, and direct observation/artifact/segment projection scans.
+Both startup verification passes and the writable FTS structural check remain.
+
+Each trial used a fresh isolated copy of the same consistent SQLite backup.
+The steady-schema candidate copies were prepared before timing; the native
+upgrade was measured separately. Pair order alternated before/after,
+after/before, before/after. Both executables used Go 1.27.1, `CGO_ENABLED=0`,
+`GOAMD64=v1` and the unchanged SQLite 1.57.0/libc 1.74.4 dependencies on the
+same shared Linux x86-64 host. Filesystem caches were not flushed.
+The initialize timer starts after process launch, before the MCP request is
+written, and ends after its response is decoded. It includes store opening
+and verification, not just the initialize handler.
+
+| Measure | Before | Retained candidate |
+| --- | ---: | ---: |
+| Initialize median, three restarts | 377.427 s | 78.533 s |
+| Initialize sampled maximum | 394.343 s | 79.794 s |
+| Query median, 45 observations | 552.080 ms | 564.930 ms |
+| Query nearest-rank p95 | 622.116 ms | 623.440 ms |
+| Query sampled maximum | 652.488 ms | 697.778 ms |
+| Whole-process CPU median | 425.794 s | 107.493 s |
+| Whole-process peak RSS median | 80,900 KiB | 83,728 KiB |
+| Final sampled logical reads, median | 23.678 GB | 2.582 GB |
+| Database bytes after validation | 66,584,576 | 66,740,224 |
+
+Initialize median fell 79.19%. Query median increased 2.33%; this is not a
+query-speed improvement. CPU, RSS and sampled I/O include startup, status,
+the 15 validation queries and a historical-trail read. RSS increased 3.50%.
+Both arms recorded zero physical `read_bytes`, so the logical-read reduction
+does not demonstrate less storage-device waiting. The native SQLite 3.53.3
+`dbstat` measurement assigns 1,208,320 bytes to the new index; net database
+growth is smaller because existing free space can be reused.
+
+Separate instrumented profiles measured the unchanged orphan predicate at
+222.273 s before and 3.077 s after, combined over both passes: a 98.62%
+reduction. Native EXPLAIN changes its local-item membership lookup from
+source-only primary-key access to the partial covering index with both source
+and representation equality keys. The retained profile still spent 38.409 s
+in local-item verification, 18.654 s in canonical verification and 11.598 s
+in ingestion verification. Initialization remains corpus/history-dependent.
+
+All 90 matched retrieval observations passed the frozen identity, exact
+released-byte, digest, coordinate, latest-revision, withdrawal and absence
+checks. They cover 15 distinct known-key cases, not 90 independent relevance
+cases. All six historical checks preserved the original selected packet and
+candidate metadata. Historical metadata consistency does not prove retired
+text or authenticity against complete database rewriting.
+
+One native version-10 upgrade initialized in 490.709 s and passed the same
+15 cases and historical selection check. It created a verified version-10
+backup before applying migration 11. This timing includes old-schema
+verification, backup creation, migration and new-schema opening; it is not
+an isolated index-build timing or the steady-schema restart cost.
+
+### Rejected further startup acceleration
+
+A later prepared-plan/full-streaming/grouped-count/storage-order candidate
+initialized in 46.838 s in one instrumented trial and passed the frozen
+retrieval/provenance checks and full Go/race/native checks. It was rejected:
+twelve alternating fresh-empty pairs failed the prospectively fixed
+sampled-maximum guard. Maximum initialization rose from 337.464 to
+546.720 ms, exceeding the 25% ceiling; median rose from 165.599 to
+181.324 ms, below the 10% ceiling. Its 64-document median and maximum improved
+44.57% and 45.85%. The empty-store regression's cause remains unresolved;
+the failed observations were not repeated for a favorable outcome.
+
+The retained candidate's earlier twelve-pair controls observed fresh-empty
+median/max increases of 6.35%/11.92% and a 64-document median reduction of
+28.02%. These are descriptive observations, not a new prospectively gated
+study or population-tail bounds. Three large-store restart samples also
+cannot establish tails, a theoretical optimum, sustained writer behavior,
+larger-store capacity or universal speed. The optimization observations
+have not been independently reproduced or published as a companion result.
+
 ## Declared associations on a bounded backup checklist
 
 The [corrected comparison](https://github.com/graydeon/mousa-benchmarks/tree/7b87c38769eefa38ed2303f096e73474317fa3f1/results/2026-09-17-associated-context)

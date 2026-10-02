@@ -109,6 +109,10 @@ func getObservation(ctx context.Context, q queryRower, id mousa.ObservationID) (
 	if err := q.QueryRowContext(ctx, `SELECT source_id, record_json FROM observations WHERE id = ?`, id[:]).Scan(&sourceID, &data); err != nil {
 		return mousa.Observation{}, readError("get observation", err)
 	}
+	return decodeObservationProjection(id, sourceID, data)
+}
+
+func decodeObservationProjection(id mousa.ObservationID, sourceID, data []byte) (mousa.Observation, error) {
 	record, err := decodeCanonical(data, mousa.DecodeObservation, mousa.EncodeObservation)
 	if err != nil {
 		return mousa.Observation{}, wrap(CodeIntegrity, "get observation", err)
@@ -157,6 +161,10 @@ func getArtifact(ctx context.Context, q queryRower, id mousa.ArtifactID) (mousa.
 	if err := q.QueryRowContext(ctx, `SELECT observation_id, record_json FROM artifacts WHERE id = ?`, id[:]).Scan(&observationID, &data); err != nil {
 		return mousa.Artifact{}, readError("get artifact", err)
 	}
+	return decodeArtifactProjection(id, observationID, data)
+}
+
+func decodeArtifactProjection(id mousa.ArtifactID, observationID, data []byte) (mousa.Artifact, error) {
 	record, err := decodeCanonical(data, mousa.DecodeArtifact, mousa.EncodeArtifact)
 	if err != nil {
 		return mousa.Artifact{}, wrap(CodeIntegrity, "get artifact", err)
@@ -353,6 +361,10 @@ func getSegment(ctx context.Context, q queryRower, id mousa.SegmentID) (mousa.Se
 	if err := q.QueryRowContext(ctx, `SELECT representation_id, selector_start, selector_end, record_json FROM segments WHERE id = ?`, id[:]).Scan(&representationID, &start, &end, &data); err != nil {
 		return mousa.Segment{}, readError("get segment", err)
 	}
+	return decodeSegmentProjection(id, representationID, start, end, data)
+}
+
+func decodeSegmentProjection(id mousa.SegmentID, representationID, start, end, data []byte) (mousa.Segment, error) {
 	record, err := decodeCanonical(data, mousa.DecodeSegment, mousa.EncodeSegment)
 	if err != nil {
 		return mousa.Segment{}, wrap(CodeIntegrity, "get segment", err)

@@ -239,7 +239,10 @@ Portable stdio commands must be bare names or contained `./` paths, so the
 package uses `./bin/mousa`, not an absolute executable path. The store path is
 user-specific startup configuration. The generator does not open/ingest the
 store, install credentials, alter host configuration or publish anything.
-It refuses an existing destination. Protect the package/config like the store.
+It refuses an existing destination. If generation fails before all package
+files are written, it removes its newly created partial directory and reports
+any cleanup error. A complete package remains if only emitting the final CLI
+result fails. Protect the package/config like the store.
 
 The setup skill explains sharing and asks the user to confirm sources before
 retrieval. The evidence skill explains querying, quotations and Source Trails.
@@ -472,6 +475,30 @@ Preview selection before recovery. The current defaults are narrower than older
 CLI versions that attempted every UTF-8 file. Use explicit include patterns or
 `--all-text` when the intended recovery set needs other file types or hidden files;
 review the selection before committing it.
+
+## Startup verification and schema 11
+
+Migration 11 adds a nonunique partial index on active local items by source and
+representation. It changes the access path for startup's orphan-index check,
+not activation, canonical identities, evidence bytes or retrieval policy. An
+upgrade from version 10 creates a verified
+`<store>.pre-migrate-v10-to-v11.sqlite` backup before changing the schema.
+Read-only opens refuse an older schema without migrating it. Older binaries
+refuse a version-11 store; use the backup when an older binary is required.
+
+Writable startup retains both read-only preflight and writable verification,
+including the writable FTS structural integrity check. Canonical records,
+ingestion records and local-item activation checks each use a read snapshot.
+Observation, artifact and segment records are verified directly from ordered
+scans with the same canonical decoding and projection checks as individual
+reads. Each source's ingestion state is verified once per ingestion snapshot;
+all receipts, withdrawals and state rows remain checked. No verification result
+is reused across snapshots, opening passes or operations.
+
+These snapshots can retain WAL pages while a concurrent writer commits. They
+end when their verification phase finishes or fails. Startup still reads and
+verifies retained history; the index does not make initialization independent
+of corpus size or establish larger-store capacity.
 
 ## JSONL input
 

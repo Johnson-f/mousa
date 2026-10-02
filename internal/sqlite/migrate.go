@@ -113,6 +113,10 @@ var requiredObjectsV10 = append(append([]string(nil), requiredObjectsV9...),
 	"table:local_recovery_sources",
 )
 
+var requiredObjectsV11 = append(append([]string(nil), requiredObjectsV10...),
+	"index:local_items_active_representation_idx",
+)
+
 func migrate(ctx context.Context, db *sql.DB) error {
 	migrations, err := loadMigrations(migrationFiles)
 	if err != nil {
@@ -303,6 +307,8 @@ func verifyVersion(ctx context.Context, db *sql.DB, embedded []migration, wantVe
 		requiredObjects = requiredObjectsV9
 	} else if wantVersion == 10 {
 		requiredObjects = requiredObjectsV10
+	} else if wantVersion == 11 {
+		requiredObjects = requiredObjectsV11
 	}
 	if !equalStringSets(objects, requiredObjects) {
 		return integrity("verify database", fmt.Sprintf("schema objects are %v, want %v", objects, requiredObjects))
@@ -474,45 +480,89 @@ func verifyPragmas(ctx context.Context, db *sql.DB, requireWAL bool) error {
 }
 
 func verifyCanonicalRecords(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return startupError("begin canonical verification", err)
+	}
+	defer tx.Rollback()
 	checks := []struct {
-		table string
-		get   func([]byte) error
+		table   string
+		columns string
+		get     func([]byte) error
+		scan    func(*sql.Rows) error
 	}{
-		{"sources", func(raw []byte) error {
+		{"sources", "id", func(raw []byte) error {
 			var id mousa.SourceID
 			copy(id[:], raw)
-			_, err := getSource(ctx, db, id)
+			_, err := getSource(ctx, tx, id)
 			return err
-		}},
-		{"observations", func(raw []byte) error {
+		}, nil},
+		{"observations", "id, source_id, record_json", nil, func(rows *sql.Rows) error {
+			var raw, parent, data sql.RawBytes
+			if err := rows.Scan(&raw, &parent, &data); err != nil {
+				return startupError("scan observations", err)
+			}
+			if len(raw) != len(mousa.ObservationID{}) {
+				return integrity("scan observations", "invalid ID length")
+			}
 			var id mousa.ObservationID
 			copy(id[:], raw)
-			_, err := getObservation(ctx, db, id)
+			_, err := decodeObservationProjection(id, parent, data)
 			return err
 		}},
-		{"artifacts", func(raw []byte) error {
+		{"artifacts", "id, observation_id, record_json", nil, func(rows *sql.Rows) error {
+			var raw, parent, data sql.RawBytes
+			if err := rows.Scan(&raw, &parent, &data); err != nil {
+				return startupError("scan artifacts", err)
+			}
+			if len(raw) != len(mousa.ArtifactID{}) {
+				return integrity("scan artifacts", "invalid ID length")
+			}
 			var id mousa.ArtifactID
 			copy(id[:], raw)
-			_, err := getArtifact(ctx, db, id)
+			_, err := decodeArtifactProjection(id, parent, data)
 			return err
 		}},
-		{"representations", func(raw []byte) error {
+		{"representations", "id", func(raw []byte) error {
 			var id mousa.RepresentationID
 			copy(id[:], raw)
-			_, err := getRepresentation(ctx, db, id)
+			_, err := getRepresentation(ctx, tx, id)
 			return err
-		}},
-		{"segments", func(raw []byte) error {
+		}, nil},
+		{"segments", "id, representation_id, selector_start, selector_end, record_json", nil, func(rows *sql.Rows) error {
+			var raw, parent, start, end, data sql.RawBytes
+			if err := rows.Scan(&raw, &parent, &start, &end, &data); err != nil {
+				return startupError("scan segments", err)
+			}
+			if len(raw) != len(mousa.SegmentID{}) {
+				return integrity("scan segments", "invalid ID length")
+			}
 			var id mousa.SegmentID
 			copy(id[:], raw)
-			_, err := getSegment(ctx, db, id)
+			_, err := decodeSegmentProjection(id, parent, start, end, data)
 			return err
 		}},
 	}
 	for _, check := range checks {
-		rows, err := db.QueryContext(ctx, `SELECT id FROM `+check.table+` ORDER BY id`)
+		rows, err := tx.QueryContext(ctx, `SELECT `+check.columns+` FROM `+check.table+` ORDER BY id`)
 		if err != nil {
 			return startupError("scan "+check.table, err)
+		}
+		if check.scan != nil {
+			for rows.Next() {
+				if err := check.scan(rows); err != nil {
+					rows.Close()
+					return err
+				}
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return startupError("scan "+check.table, err)
+			}
+			if err := rows.Close(); err != nil {
+				return startupError("scan "+check.table, err)
+			}
+			continue
 		}
 		var ids [][]byte
 		for rows.Next() {
@@ -522,6 +572,10 @@ func verifyCanonicalRecords(ctx context.Context, db *sql.DB) error {
 				return startupError("scan "+check.table, err)
 			}
 			ids = append(ids, append([]byte(nil), id...))
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return startupError("scan "+check.table, err)
 		}
 		if err := rows.Close(); err != nil {
 			return startupError("scan "+check.table, err)
@@ -534,6 +588,9 @@ func verifyCanonicalRecords(ctx context.Context, db *sql.DB) error {
 				return err
 			}
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return startupError("finish canonical verification", err)
 	}
 	return nil
 }

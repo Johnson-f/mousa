@@ -113,7 +113,7 @@ class TransportTests(unittest.TestCase):
         path = Path(directory.name) / "peer"
         path.write_text("#!" + sys.executable + "\n" + body)
         path.chmod(0o700)
-        client = memory.Client(path, "unused", io.StringIO(), False, timeout)
+        client = memory.Client(path, "unused", io.StringIO(), False, timeout, "memory")
         def cleanup():
             if client.process.poll() is None:
                 client.process.kill()
@@ -208,7 +208,7 @@ class TransportTests(unittest.TestCase):
                     with patch.object(memory.subprocess, "Popen", capture), patch.object(
                             memory.os, "set_blocking", side_effect=OSError("setup failed")):
                         with self.assertRaisesRegex(OSError, "setup failed") as raised:
-                            memory.Client(sys.executable, "unused", io.StringIO(), False, 1)
+                            memory.Client(sys.executable, "unused", io.StringIO(), False, 1, "memory")
                     if fail_close:
                         self.assertIn("stdin close failed", str(raised.exception.__cause__))
                     process = processes[0]
@@ -270,8 +270,8 @@ class RenderingTests(unittest.TestCase):
     def test_revision_digest_selects_correction_attribution(self):
         original = self.history["documents"][18]
         correction = self.history["changes"][0]
-        old = memory.render({"evidence": [evidence(original["id"], original["text"])]}, self.history, "schedule")
-        new = memory.render({"evidence": [evidence(correction["id"], correction["text"])]}, self.history, "schedule")
+        old = memory.render({"source": "memory", "evidence": [evidence(original["id"], original["text"])]}, self.history, "schedule")
+        new = memory.render({"source": "memory", "evidence": [evidence(correction["id"], correction["text"])]}, self.history, "schedule")
         self.assertEqual(old["passages"][0]["attribution"]["uri"], original["uri"])
         self.assertEqual(new["passages"][0]["attribution"]["uri"], correction["uri"])
         self.assertEqual(new["passages"][0]["attribution"]["date"], correction["date"])
@@ -289,13 +289,13 @@ class RenderingTests(unittest.TestCase):
                     row["text"] = "\ufeff" + normalized.replace("\n", ending)
                     row["sha256"] = hashlib.sha256(row["text"].encode()).hexdigest()
                     hit = evidence(row["id"], normalized)
-                    rendered = memory.render({"evidence": [hit]}, history, "schedule")
+                    rendered = memory.render({"source": "memory", "evidence": [hit]}, history, "schedule")
                     self.assertEqual(rendered["passages"][0]["attribution"]["uri"], row["uri"])
                     self.assertEqual(rendered["passages"][0]["evidence"]["text"], normalized)
                     tampered = copy.deepcopy(hit)
                     tampered["byte_end"] -= 1
                     with self.assertRaises(RuntimeError):
-                        memory.render({"evidence": [tampered]}, history, "schedule")
+                        memory.render({"source": "memory", "evidence": [tampered]}, history, "schedule")
 
     def test_normalization_collision_does_not_choose_an_author(self):
         history = copy.deepcopy(self.history)
@@ -304,7 +304,7 @@ class RenderingTests(unittest.TestCase):
         correction["text"] = "\ufeff" + original["text"].replace("\n", "\r\n")
         correction["sha256"] = hashlib.sha256(correction["text"].encode()).hexdigest()
         with self.assertRaises(ValueError):
-            memory.render({"evidence": [evidence(original["id"], original["text"])]}, history, "schedule")
+            memory.render({"source": "memory", "evidence": [evidence(original["id"], original["text"])]}, history, "schedule")
 
     def test_tampered_bytes_coordinates_and_item_are_rejected(self):
         document = self.history["documents"][0]
@@ -317,7 +317,7 @@ class RenderingTests(unittest.TestCase):
                 hit = copy.deepcopy(valid)
                 hit.update(mutation)
                 with self.assertRaises((ValueError, RuntimeError)):
-                    memory.render({"evidence": [hit]}, self.history, "saving")
+                    memory.render({"source": "memory", "evidence": [hit]}, self.history, "saving")
 
 
 class ExecutableTests(unittest.TestCase):
